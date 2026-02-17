@@ -1,0 +1,122 @@
+package com.kairon.repository;
+
+import com.kairon.domain.entity.Appointment;
+import com.kairon.domain.enums.AppointmentStatus; // 👈 Importante ter esse import
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+@Repository
+public interface AppointmentRepository extends JpaRepository<Appointment, String> {
+
+    // --- MÉTODOS BÁSICOS ---
+    List<Appointment> findByCompanyId(String companyId);
+    List<Appointment> findByCompanyIdAndProfessionalId(String companyId, String professionalId);
+    List<Appointment> findByCompanyIdAndClientId(String companyId, String clientId);
+    Optional<Appointment> findByIdAndCompanyId(String id, String companyId);
+
+    // Método antigo usado na agenda
+    List<Appointment> findByProfessionalIdAndStartTimeBetween(String professionalId, LocalDateTime start, LocalDateTime end);
+
+    // ============================================
+    //      NOVOS MÉTODOS PARA O FINANCEIRO (CORREÇÃO)
+    // ============================================
+
+    // 1. Busca cortes concluídos num intervalo de datas (Para somar no Dashboard)
+    List<Appointment> findByCompanyIdAndStartTimeBetweenAndStatus(
+            String companyId,
+            LocalDateTime start,
+            LocalDateTime end,
+            AppointmentStatus status
+    );
+
+    // 2. Busca histórico completo de cortes concluídos (Para o Extrato unificado)
+    List<Appointment> findByCompanyIdAndStatusOrderByStartTimeDesc(
+            String companyId,
+            AppointmentStatus status
+    );
+
+    // ============================================
+    //              VALIDAÇÕES (AGENDA)
+    // ============================================
+
+    @Query("SELECT COUNT(a) > 0 FROM Appointment a " +
+            "WHERE a.professional.id = :professionalId " +
+            "AND a.status <> 'CANCELED' " +
+            "AND (" +
+            "   (a.startTime < :endTime AND a.endTime > :startTime)" +
+            ")")
+    boolean existsByProfessionalAndDateOverlap(
+            @Param("professionalId") String professionalId,
+            @Param("startTime") LocalDateTime startTime,
+            @Param("endTime") LocalDateTime endTime
+    );
+
+    // ============================================
+    //              LISTAGEM (AGENDA VISUAL)
+    // ============================================
+
+    // 1. Agenda GERAL (Para o Dono ver tudo)
+    @Query("SELECT a FROM Appointment a " +
+            "WHERE a.company.id = :companyId " +
+            "AND a.startTime >= :startOfDay " +
+            "AND a.startTime <= :endOfDay " +
+            "AND a.status <> 'CANCELED' " +
+            "ORDER BY a.startTime ASC")
+    List<Appointment> findByCompanyAndDateRange(
+            @Param("companyId") String companyId,
+            @Param("startOfDay") LocalDateTime startOfDay,
+            @Param("endOfDay") LocalDateTime endOfDay
+    );
+
+    // 2. Agenda FILTRADA (Para o Profissional ou Filtro do Dono)
+    @Query("SELECT a FROM Appointment a " +
+            "WHERE a.company.id = :companyId " +
+            "AND a.professional.id = :professionalId " +
+            "AND a.startTime >= :startOfDay " +
+            "AND a.startTime <= :endOfDay " +
+            "ORDER BY a.startTime ASC")
+    List<Appointment> findByCompanyAndProfessionalAndDateRange(
+            @Param("companyId") String companyId,
+            @Param("professionalId") String professionalId,
+            @Param("startOfDay") LocalDateTime startOfDay,
+            @Param("endOfDay") LocalDateTime endOfDay
+    );
+
+    // ============================================
+    //              CONTAGENS ANTIGAS
+    // ============================================
+
+    // 1. Contagem Total (Owner)
+    @Query("SELECT COUNT(a) FROM Appointment a " +
+            "WHERE a.company.id = :companyId " +
+            "AND a.status = 'COMPLETED' " +
+            "AND a.startTime >= :start " +
+            "AND a.startTime <= :end")
+    Long countCompletedAppointments(
+            @Param("companyId") String companyId,
+            @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end
+    );
+
+    // 2. Contagem Profissional
+    @Query("SELECT COUNT(a) FROM Appointment a " +
+            "WHERE a.company.id = :companyId " +
+            "AND a.professional.id = :professionalId " +
+            "AND a.status = 'COMPLETED' " +
+            "AND a.startTime >= :startDate " +
+            "AND a.startTime <= :endDate")
+    Long countCompletedAppointmentsByProfessional(
+            @Param("companyId") String companyId,
+            @Param("professionalId") String professionalId,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate
+    );
+
+    List<Appointment> findByCompanyIdAndStatus(String companyId, AppointmentStatus status);
+}
