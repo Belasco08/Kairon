@@ -4,9 +4,7 @@ import com.kairon.domain.entity.Company;
 import com.kairon.domain.entity.User;
 import com.kairon.domain.enums.PlanType;
 import com.kairon.domain.enums.Role;
-import com.kairon.dto.request.AuthRequest;
-import com.kairon.dto.request.RegisterRequest;
-import com.kairon.dto.request.RefreshTokenRequest;
+import com.kairon.dto.request.*;
 import com.kairon.dto.response.AuthResponse;
 import com.kairon.dto.response.TokenRefreshResponse;
 import com.kairon.exception.BusinessException;
@@ -16,6 +14,8 @@ import com.kairon.security.auth.UserDetailsImpl;
 import com.kairon.security.auth.UserDetailsServiceImpl;
 import com.kairon.security.jwt.JwtService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -220,5 +221,44 @@ public class AuthService {
         day.put("end", end);
         day.put("active", active);
         return day;
+    }
+
+    private final JavaMailSender mailSender; // Adicione esta linha
+
+    public void forgotPassword(ForgotPasswordRequest request) {
+        // 1. Acha o usuário
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new RuntimeException("E-mail não encontrado."));
+
+        // 2. Gera o token e salva no banco
+        String token = UUID.randomUUID().toString();
+        user.setResetToken(token);
+        userRepository.save(user);
+
+        // 3. Monta o e-mail
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom("suportekairon@gmail.com");
+        message.setTo(user.getEmail());
+        message.setSubject("Kairon - Recuperação de Senha");
+
+        // Manda o Token solto e também um "Deep Link" para o aplicativo
+        message.setText("Olá!\n\nVocê solicitou a recuperação de senha no Kairon.\n\n" +
+                "Copie o código abaixo e cole no aplicativo:\n" +
+                "TOKEN: " + token + "\n\n" +
+                "Se preferir, clique no link abaixo no seu celular para abrir o app direto:\n" +
+                "kairon://reset-password?token=" + token + "\n\n" +
+                "Se não foi você, apenas ignore este e-mail.");
+
+        // 4. Dispara o e-mail de verdade!
+        mailSender.send(message);
+    }
+
+    public void resetPassword(ResetPasswordRequest request) {
+        User user = userRepository.findByResetToken(request.getToken())
+                .orElseThrow(() -> new RuntimeException("Token inválido ou expirado."));
+
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setResetToken(null);
+        userRepository.save(user);
     }
 }

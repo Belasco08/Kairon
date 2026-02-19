@@ -81,5 +81,7 @@ public interface UserRepository extends JpaRepository<User, String> {
     Optional<UserAuthProjection> findAuthDataByEmail(
             @Param("email") String email
     );
+
+    Optional<User> findByResetToken(String resetToken);
 }
 

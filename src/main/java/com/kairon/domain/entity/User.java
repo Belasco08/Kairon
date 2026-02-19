@@ -63,4 +63,7 @@ public class User {
     private LocalDateTime updatedAt;
 
     private String avatar;
+
+    @Column(name = "reset_token")
+    private String resetToken;
 }

@@ -1,8 +1,6 @@
 package com.kairon.controller;
 
-import com.kairon.dto.request.AuthRequest;
-import com.kairon.dto.request.RegisterRequest;
-import com.kairon.dto.request.RefreshTokenRequest;
+import com.kairon.dto.request.*;
 import com.kairon.dto.response.AuthResponse;
 import com.kairon.dto.response.TokenRefreshResponse;
 import com.kairon.security.auth.UserDetailsImpl;
@@ -14,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/auth")
@@ -64,5 +64,24 @@ public class AuthController {
         return ResponseEntity.ok(
                 authService.getProfile(userDetails.getEmail())
         );
+    }
+
+    @PostMapping("/forgot-password")
+    @Operation(summary = "Solicitar recuperação de palavra-passe")
+    public ResponseEntity<Map<String, String>> forgotPassword(
+            @Valid @RequestBody ForgotPasswordRequest request
+    ) {
+        authService.forgotPassword(request);
+        // Retornamos sempre sucesso por segurança (para não revelar se o e-mail existe a hackers)
+        return ResponseEntity.ok(Map.of("message", "Se o e-mail existir, as instruções foram enviadas."));
+    }
+
+    @PostMapping("/reset-password")
+    @Operation(summary = "Definir nova palavra-passe com token")
+    public ResponseEntity<Map<String, String>> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request
+    ) {
+        authService.resetPassword(request);
+        return ResponseEntity.ok(Map.of("message", "Palavra-passe alterada com sucesso."));
     }
 }
