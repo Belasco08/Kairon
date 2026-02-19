@@ -1,6 +1,7 @@
 package com.kairon.service;
 
 import com.kairon.domain.entity.Company;
+import com.kairon.domain.entity.Professional;
 import com.kairon.domain.entity.User;
 import com.kairon.domain.enums.PlanType;
 import com.kairon.domain.enums.Role;
@@ -9,6 +10,7 @@ import com.kairon.dto.response.AuthResponse;
 import com.kairon.dto.response.TokenRefreshResponse;
 import com.kairon.exception.BusinessException;
 import com.kairon.repository.CompanyRepository;
+import com.kairon.repository.ProfessionalRepository;
 import com.kairon.repository.UserRepository;
 import com.kairon.security.auth.UserDetailsImpl;
 import com.kairon.security.auth.UserDetailsServiceImpl;
@@ -38,6 +40,8 @@ public class AuthService {
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
     private final UserDetailsServiceImpl userDetailsService;
+
+    private final ProfessionalRepository professionalRepository;
     // private final ObjectMapper objectMapper; // REMOVIDO: Não precisamos mais dele aqui
 
     /* =======================
@@ -62,7 +66,6 @@ public class AuthService {
                         .name(request.getCompanyName())
                         .slug(slug)
                         .businessType(request.getBusinessType())
-                        // 👇 CORREÇÃO: businessHours com Map
                         .businessHours(createDefaultBusinessHours())
                         .timezone("America/Sao_Paulo")
                         .currency("BRL")
@@ -70,7 +73,7 @@ public class AuthService {
                         .bufferTime(10)
                         .isActive(true)
                         .isVerified(false)
-                        .plan(PlanType.FREE) // 👈 ADICIONE ESSA LINHA EXPLÍCITA
+                        .plan(PlanType.FREE)
                         .build()
         );
 
@@ -86,6 +89,21 @@ public class AuthService {
                         .createdAt(LocalDateTime.now())
                         .build()
         );
+
+        // =========================================================
+        // 🌟 O PULO DO GATO: CRIAR O PROFISSIONAL AUTOMATICAMENTE 🌟
+        // =========================================================
+        Professional professional = Professional.builder()
+                .name(user.getName())
+                .email(user.getEmail())
+                .phone(user.getPhone())
+                .company(company)
+                // .user(user) // <-- Descomente esta linha se a sua classe Professional tiver um campo "private User user;"
+                .isActive(true)
+                .build();
+
+        professionalRepository.save(professional);
+        // =========================================================
 
         return buildAuthResponse(user);
     }
