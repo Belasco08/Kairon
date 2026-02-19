@@ -24,6 +24,7 @@
 		<java.version>21</java.version>
 		<springdoc.version>2.3.0</springdoc.version>
 		<mapstruct.version>1.5.5.Final</mapstruct.version>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<jjwt.version>0.11.5</jjwt.version>
 		<hibernate.types.version>2.21.1</hibernate.types.version>
 	</properties>
