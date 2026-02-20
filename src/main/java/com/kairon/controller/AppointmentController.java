@@ -94,4 +94,18 @@ public class AppointmentController {
         // para salvar tanto o novo 'startTime' quanto os novos 'serviceIds'
         return ResponseEntity.ok(appointmentService.updateAppointment(companyId, id, request));
     }
+
+    // 👇 ADICIONE ESTE ENDPOINT NO SEU APPOINTMENT CONTROLLER
+    @GetMapping("/client/{clientId}")
+    @Operation(summary = "Buscar histórico de agendamentos de um cliente específico")
+    public ResponseEntity<List<AppointmentResponse>> getAppointmentsByClient(@PathVariable String clientId) {
+
+        // Pega o ID da empresa do usuário logado por segurança
+        String companyId = SecurityUtils.getCurrentCompanyId();
+
+        // Chama o serviço que nós já tínhamos criado antes
+        List<AppointmentResponse> history = appointmentService.getAppointmentsByClient(companyId, clientId);
+
+        return ResponseEntity.ok(history);
+    }
 }

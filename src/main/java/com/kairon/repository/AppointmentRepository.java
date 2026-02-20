@@ -18,7 +18,11 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
     // --- MÉTODOS BÁSICOS ---
     List<Appointment> findByCompanyId(String companyId);
     List<Appointment> findByCompanyIdAndProfessionalId(String companyId, String professionalId);
-    List<Appointment> findByCompanyIdAndClientId(String companyId, String clientId);
+    @Query("SELECT a FROM Appointment a WHERE a.company.id = :companyId AND a.client.id = :clientId ORDER BY a.startTime DESC")
+    List<Appointment> findByCompanyIdAndClientId(
+            @Param("companyId") String companyId,
+            @Param("clientId") String clientId
+    );
     Optional<Appointment> findByIdAndCompanyId(String id, String companyId);
 
     // Método antigo usado na agenda
@@ -135,4 +139,6 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
             @Param("appointmentId") String appointmentId);
 
     List<Appointment> findByCompanyIdAndStatus(String companyId, AppointmentStatus status);
+
+
 }
