@@ -3,7 +3,7 @@ package com.kairon.service;
 import com.kairon.domain.entity.*;
 import com.kairon.domain.enums.AppointmentStatus;
 import com.kairon.domain.enums.FinancialType;
-import com.kairon.domain.enums.PlanType; // Importe o Enum do Plano
+import com.kairon.domain.enums.PlanType;
 import com.kairon.domain.enums.Role;
 import com.kairon.dto.request.*;
 import com.kairon.dto.response.*;
@@ -19,6 +19,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -117,7 +118,6 @@ public class AppointmentService {
         }
     }
 
-    // Outros métodos GET simplificados...
     public List<AppointmentResponse> getAppointmentsByProfessional(String companyId, String professionalId) {
         return appointmentRepository.findByCompanyIdAndProfessionalId(companyId, professionalId).stream().map(this::buildResponse).toList();
     }
@@ -144,7 +144,6 @@ public class AppointmentService {
         appointment.setStatus(newStatus);
         if (request.getReason() != null) appointment.setCancellationReason(request.getReason());
 
-        // Se marcou como CONCLUÍDO, gera o financeiro
         if (newStatus == AppointmentStatus.COMPLETED) {
             processFinancialSplit(appointment);
         }
@@ -164,14 +163,78 @@ public class AppointmentService {
         return buildResponse(appointment);
     }
 
+    // 👇 ADICIONADO: Método Genérico para Atualizar Data e Serviços juntos
+    @Transactional
+    public AppointmentResponse updateAppointment(String companyId, String appointmentId, AppointmentUpdateRequest request) {
+        Appointment appointment = appointmentRepository.findByIdAndCompanyId(appointmentId, companyId)
+                .orElseThrow(() -> new BusinessException("Agendamento não encontrado"));
+
+        int totalDuration = 0;
+
+        // 1. Atualiza os Serviços se foram enviados
+        if (request.getServiceIds() != null && !request.getServiceIds().isEmpty()) {
+
+            // Remove os itens antigos
+            appointmentItemRepository.deleteByAppointmentId(appointmentId);
+
+            // Busca os novos serviços
+            List<Services> services = serviceRepository.findAllById(request.getServiceIds());
+            if (services.isEmpty()) {
+                throw new BusinessException("Os serviços selecionados não são válidos");
+            }
+
+            BigDecimal totalPrice = services.stream().map(Services::getPrice).reduce(BigDecimal.ZERO, BigDecimal::add);
+            totalDuration = services.stream().mapToInt(Services::getDuration).sum();
+
+            appointment.setTotalPrice(totalPrice);
+
+            // 👇 CORREÇÃO: Usando Collectors.toSet() para compatibilidade com a Entidade Appointment
+            Set<AppointmentItem> newItems = services.stream().map(s -> AppointmentItem.builder()
+                    .id(UUID.randomUUID().toString())
+                    .appointment(appointment)
+                    .service(s)
+                    .price(s.getPrice())
+                    .duration(s.getDuration())
+                    .build()).collect(Collectors.toSet());
+
+            appointmentItemRepository.saveAll(newItems);
+            appointment.setAppointmentServices(newItems);
+        } else {
+            // Mantém a duração dos serviços que já estavam para recalcular o EndTime
+            if (appointment.getAppointmentServices() != null) {
+                totalDuration = appointment.getAppointmentServices().stream()
+                        .mapToInt(AppointmentItem::getDuration).sum();
+            }
+        }
+
+        // 2. Atualiza a Data/Hora se foi enviada
+        if (request.getStartTime() != null) {
+            LocalDateTime start = request.getStartTime();
+            LocalDateTime end = start.plusMinutes(totalDuration);
+
+            // Verifica conflito de horário APENAS se o horário mudou
+            if (!start.equals(appointment.getStartTime()) && appointmentRepository.existsByProfessionalAndDateOverlapAndIdNot(appointment.getProfessional().getId(), start, end, appointmentId)) {
+                throw new BusinessException("Este horário já está ocupado por outro agendamento.");
+            }
+
+            appointment.setStartTime(start);
+            appointment.setEndTime(end);
+        }
+
+        // 3. Salva a atualização principal
+        Appointment updatedAppointment = appointmentRepository.save(appointment);
+
+        return buildResponse(updatedAppointment);
+    }
+
+
     /* ================= FINANCIAL (TRAVA PLUS APLICADA) ================= */
 
     private void processFinancialSplit(Appointment appointment) {
         Professional prof = appointment.getProfessional();
         BigDecimal totalAmount = appointment.getTotalPrice();
-        Company company = appointment.getCompany(); // Pega a empresa para checar o plano
+        Company company = appointment.getCompany();
 
-        // Pega o nome do primeiro serviço para usar como título
         String serviceTitle = "Serviço Agendado";
         if (appointment.getAppointmentServices() != null && !appointment.getAppointmentServices().isEmpty()) {
             serviceTitle = appointment.getAppointmentServices().iterator().next().getService().getName();
@@ -179,7 +242,6 @@ public class AppointmentService {
 
         System.out.println(">>> PROCESSANDO FINANCEIRO: " + appointment.getId());
 
-        // 1. Receita Total (Sempre gera, seja Free ou Plus)
         FinancialRecord incomeRecord = FinancialRecord.builder()
                 .type(FinancialType.APPOINTMENT)
                 .amount(totalAmount)
@@ -197,13 +259,10 @@ public class AppointmentService {
 
         financialRecordRepository.save(incomeRecord);
 
-        // --- TRAVA FREEMIUM: COMISSÃO AUTOMÁTICA ---
-        // Se for FREE, para por aqui. Não gera a despesa de comissão.
         if (company.getPlan() == PlanType.FREE) {
             return;
         }
 
-        // 2. Comissão (Apenas para PLUS)
         BigDecimal commissionRate = prof.getCommissionPercentage() != null ? prof.getCommissionPercentage() : new BigDecimal("50.00");
 
         if (commissionRate.compareTo(BigDecimal.ZERO) > 0) {

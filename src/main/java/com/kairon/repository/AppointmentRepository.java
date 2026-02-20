@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import java.time.LocalDateTime;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -117,6 +118,21 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate
     );
+
+
+
+// ... dentro do seu AppointmentRepository interface ...
+
+    @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM Appointment a " +
+            "WHERE a.professional.id = :professionalId " +
+            "AND a.id != :appointmentId " +
+            "AND a.status NOT IN ('CANCELLED', 'NO_SHOW') " +
+            "AND (a.startTime < :endTime AND a.endTime > :startTime)")
+    boolean existsByProfessionalAndDateOverlapAndIdNot(
+            @Param("professionalId") String professionalId,
+            @Param("startTime") LocalDateTime startTime,
+            @Param("endTime") LocalDateTime endTime,
+            @Param("appointmentId") String appointmentId);
 
     List<Appointment> findByCompanyIdAndStatus(String companyId, AppointmentStatus status);
 }

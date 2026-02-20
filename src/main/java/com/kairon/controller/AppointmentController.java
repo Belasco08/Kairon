@@ -80,4 +80,18 @@ public class AppointmentController {
         String companyId = SecurityUtils.getCurrentCompanyId();
         return ResponseEntity.ok(appointmentService.updateAppointmentServices(companyId, id, request));
     }
+
+    // ADICIONE ESTE NOVO ENDPOINT NO SEU CONTROLLER
+    @PutMapping("/{id}")
+    @Operation(summary = "Atualizar agendamento completo (Data, Hora e Serviços)")
+    public ResponseEntity<AppointmentResponse> updateAppointment(
+            @PathVariable String id,
+            @Valid @RequestBody AppointmentUpdateRequest request) {
+
+        String companyId = SecurityUtils.getCurrentCompanyId();
+
+        // Certifique-se de ter esse método genérico 'updateAppointment' no seu Service
+        // para salvar tanto o novo 'startTime' quanto os novos 'serviceIds'
+        return ResponseEntity.ok(appointmentService.updateAppointment(companyId, id, request));
+    }
 }
