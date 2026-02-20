@@ -1,12 +1,13 @@
 package com.kairon.service;
 
+import com.cloudinary.Cloudinary;
+import com.cloudinary.utils.ObjectUtils;
 import com.kairon.domain.entity.User;
 import com.kairon.dto.request.UserUpdateRequest;
 import com.kairon.dto.response.UserResponse;
 import com.kairon.exception.BusinessException;
 import com.kairon.repository.UserRepository;
 import com.kairon.security.util.SecurityUtils;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -14,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.*;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -23,23 +24,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-
-    // ⚠️ CORREÇÃO CRUCIAL:
-    // Usamos System.getProperty("user.dir") para garantir que estamos na raiz do projeto,
-    // exatamente igual ao que configuramos no WebConfig.
-    private final Path fileStorageLocation = Paths.get(System.getProperty("user.dir") + "/uploads").toAbsolutePath().normalize();
-
-    @PostConstruct
-    public void init() {
-        try {
-            // Cria a pasta uploads se ela não existir
-            Files.createDirectories(this.fileStorageLocation);
-            // Log para você conferir no console onde está salvando
-            System.out.println("✅ UserService pronto. Salvando arquivos em: " + this.fileStorageLocation);
-        } catch (Exception ex) {
-            throw new RuntimeException("Não foi possível criar o diretório de uploads.", ex);
-        }
-    }
+    private final Cloudinary cloudinary; // 👈 O Cloudinary foi injetado aqui
 
     // 1. Pegar Perfil Atual
     @Transactional(readOnly = true)
@@ -75,7 +60,7 @@ public class UserService {
         return mapToResponse(userRepository.save(user));
     }
 
-    // 3. Upload de Avatar
+    // 3. Upload de Avatar (Agora via Cloudinary) ☁️
     @Transactional
     public UserResponse uploadAvatar(MultipartFile file) {
         String userId = SecurityUtils.getCurrentUserId();
@@ -83,22 +68,26 @@ public class UserService {
                 .orElseThrow(() -> new BusinessException("Usuário não encontrado"));
 
         try {
-            // Gerar nome único
-            String fileName = userId + "_" + UUID.randomUUID().toString() + ".jpg";
-            Path targetLocation = this.fileStorageLocation.resolve(fileName);
+            // Gera um ID único para a imagem no Cloudinary
+            String publicId = "kairon_avatar_" + userId + "_" + UUID.randomUUID().toString();
 
-            // Salvar o arquivo físico na pasta
-            Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
+            // Faz o upload direto do fluxo de bytes (sem salvar no disco local)
+            Map uploadResult = cloudinary.uploader().upload(file.getBytes(), ObjectUtils.asMap(
+                    "public_id", publicId,
+                    "folder", "kairon/avatars" // Organiza numa pasta lá no Cloudinary
+            ));
 
-            // Salvar no banco APENAS o caminho relativo
-            // O Front-end vai adicionar o "http://ip:porta" antes disso
-            String relativePath = "/uploads/" + fileName;
+            // O Cloudinary devolve a URL segura (https) da imagem
+            String secureUrl = uploadResult.get("secure_url").toString();
 
-            user.setAvatar(relativePath);
+            // Salvamos a URL da nuvem direto no banco de dados
+            user.setAvatar(secureUrl);
             return mapToResponse(userRepository.save(user));
 
         } catch (IOException ex) {
-            throw new BusinessException("Não foi possível salvar a imagem. Tente novamente.");
+            throw new BusinessException("Erro ao processar o arquivo de imagem.");
+        } catch (Exception ex) {
+            throw new BusinessException("Falha na comunicação com o servidor de imagens.");
         }
     }
 
