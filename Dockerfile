@@ -33,4 +33,5 @@ EXPOSE 8080
 ENV JAVA_OPTS="-Xms256m -Xmx256m"
 
 # 7. COMANDO FINAL MATADOR: Inicia o Java já amarrado com a porta do Render e a memória.
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dserver.port=${PORT:8080} -jar app.jar"]
+# 👇 CORREÇÃO APLICADA: Adicionado o traço (-) no ${PORT:-8080}
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dserver.port=${PORT:-8080} -jar app.jar"]
