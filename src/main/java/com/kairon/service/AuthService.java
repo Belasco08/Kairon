@@ -73,7 +73,7 @@ public class AuthService {
                         .bufferTime(10)
                         .isActive(true)
                         .isVerified(false)
-                        .plan(PlanType.FREE)
+                        .plan(PlanType.PLUS)
                         .build()
         );
 
