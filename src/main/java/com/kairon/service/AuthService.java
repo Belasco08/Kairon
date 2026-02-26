@@ -129,7 +129,7 @@ public class AuthService {
         String refreshToken = jwtService.generateRefreshToken(userDetails);
 
         // 👇 CORREÇÃO: Extraindo o plano antes de usar
-        String plan = "FREE"; // Valor padrão
+        String plan = "PLUS"; // Valor padrão
         if (user.getCompany() != null && user.getCompany().getPlan() != null) {
             plan = user.getCompany().getPlan().name(); // Converte Enum para String (FREE ou PLUS)
         }
