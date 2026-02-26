@@ -109,8 +109,8 @@ public class AuthService {
     }
 
     /* =======================
-       LOGIN (Mantido igual)
-    ======================= */
+    LOGIN (Com Upgrade Definitivo para PLUS)
+ ======================= */
     @Transactional
     public AuthResponse login(AuthRequest request) {
         Authentication authentication = authenticationManager.authenticate(
@@ -123,15 +123,22 @@ public class AuthService {
                 .orElseThrow(() -> new BusinessException("Usuário não encontrado"));
 
         user.setLastLogin(LocalDateTime.now());
+
+        // 👇 MÁGICA DO UPGRADE DEFINITIVO ACONTECE AQUI 👇
+        if (user.getCompany() != null) {
+            user.getCompany().setPlan(PlanType.PLUS); // Atualiza a empresa para PLUS
+        }
+
+        // O userRepository.save vai garantir que o LastLogin e o Plano PLUS sejam gravados no banco
         userRepository.save(user);
 
         String token = jwtService.generateToken(userDetails);
         String refreshToken = jwtService.generateRefreshToken(userDetails);
 
-        // 👇 CORREÇÃO: Extraindo o plano antes de usar
-        String plan = "PLUS"; // Valor padrão
+        // Extraindo o plano (que agora sempre será PLUS para quem logar)
+        String plan = "FREE";
         if (user.getCompany() != null && user.getCompany().getPlan() != null) {
-            plan = user.getCompany().getPlan().name(); // Converte Enum para String (FREE ou PLUS)
+            plan = user.getCompany().getPlan().name();
         }
 
         return AuthResponse.builder()
@@ -145,7 +152,7 @@ public class AuthService {
                         .companyId(user.getCompany() != null ? user.getCompany().getId() : null)
                         .phone(user.getPhone())
                         .avatar(user.getAvatar())
-                        .plan(plan) // 👈 Agora a variável 'plan' existe!
+                        .plan(plan) // Vai devolver PLUS pro aplicativo
                         .build())
                 .build();
     }
