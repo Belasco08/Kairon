@@ -27,7 +27,7 @@ public class Product {
     private String barcode; // Código de barras
 
     @Lob // 👈 Indica que é um arquivo grande (Large Object)
-    @Column(columnDefinition = "LONGTEXT") // 👈 Garante que cabe a foto inteira (MySQL/H2)
+    @Column(columnDefinition = "TEXT") // 👈 Garante que cabe a foto inteira (MySQL/H2)
     private String photoUrl;
 
     @Enumerated(EnumType.STRING)
