@@ -13,5 +13,7 @@ public class UserResponse {
     private String avatar; // A URL da foto
     private String role;
 
+    private String companyId;
+
     private String plan; // 👈 NOVO CAMPO: "FREE" ou "PLUS"
 }

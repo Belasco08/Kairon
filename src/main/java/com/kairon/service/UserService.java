@@ -92,6 +92,13 @@ public class UserService {
     }
 
     private UserResponse mapToResponse(User user) {
+        // 👇 1. Verificamos qual é o plano atual gravado no banco
+        String plan = "FREE";
+        if (user.getCompany() != null && user.getCompany().getPlan() != null) {
+            plan = user.getCompany().getPlan().name();
+        }
+
+        // 👇 2. Devolvemos a "mochila" completa pro celular!
         return UserResponse.builder()
                 .id(user.getId())
                 .name(user.getName())
@@ -99,6 +106,8 @@ public class UserService {
                 .phone(user.getPhone())
                 .avatar(user.getAvatar())
                 .role(user.getRole().name())
+                .companyId(user.getCompany() != null ? user.getCompany().getId() : null) // Sempre bom mandar a empresa
+                .plan(plan) // 👈 O SEGREDO ESTÁ AQUI! Agora o celular sabe que você é PLUS.
                 .build();
     }
 }
