@@ -121,9 +121,15 @@ public class AppointmentService {
     public List<AppointmentResponse> getAppointmentsByProfessional(String companyId, String professionalId) {
         return appointmentRepository.findByCompanyIdAndProfessionalId(companyId, professionalId).stream().map(this::buildResponse).toList();
     }
+
+
+    // 👇 ADICIONE ESSA LINHA PARA MANTER A SESSÃO ABERTA PARA LER OS SERVIÇOS
+    @Transactional(readOnly = true)
     public List<AppointmentResponse> getAppointmentsByClient(String companyId, String clientId) {
         return appointmentRepository.findByCompanyIdAndClientId(companyId, clientId).stream().map(this::buildResponse).toList();
     }
+
+
     public List<AppointmentResponse> getAppointmentsByDate(String companyId, LocalDate date) {
         return appointmentRepository.findByCompanyAndDateRange(companyId, date.atStartOfDay(), date.plusDays(1).atStartOfDay()).stream().map(this::buildResponse).toList();
     }
