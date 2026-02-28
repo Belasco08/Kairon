@@ -47,19 +47,19 @@ public class FinancialService {
        LISTAGEM UNIFICADA (EXTRATO)
        ========================= */
 
+    /* =========================
+       LISTAGEM UNIFICADA (EXTRATO)
+       ========================= */
+
     @Transactional(readOnly = true)
     public List<FinancialResponse> getAllMovements(String companyId) {
+        // Agora busca APENAS os registros oficiais do financeiro.
+        // Como todo agendamento concluído já gera um FinancialRecord automaticamente,
+        // não precisamos mais buscar e juntar a lista de Appointments.
         List<FinancialRecord> records = financialRecordRepository.findByCompanyIdOrderByReferenceDateDesc(companyId);
-        List<Appointment> appointments = appointmentRepository.findByCompanyIdAndStatusOrderByStartTimeDesc(companyId, AppointmentStatus.COMPLETED);
 
-        List<FinancialResponse> appointmentResponses = appointments.stream()
-                .map(this::mapAppointmentToResponse).collect(Collectors.toList());
-
-        List<FinancialResponse> recordResponses = records.stream()
-                .map(this::mapRecordToResponse).collect(Collectors.toList());
-
-        return Stream.concat(recordResponses.stream(), appointmentResponses.stream())
-                .sorted(Comparator.comparing(FinancialResponse::getReferenceDate).reversed())
+        return records.stream()
+                .map(this::mapRecordToResponse)
                 .collect(Collectors.toList());
     }
 
