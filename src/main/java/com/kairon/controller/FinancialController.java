@@ -8,6 +8,7 @@ import com.kairon.dto.request.FinancialRequest;
 import com.kairon.dto.response.CategorySumResponse;
 import com.kairon.dto.response.DashboardResponse;
 import com.kairon.dto.response.FinancialResponse;
+import com.kairon.dto.response.MonthlyHistoryResponse; // 👈 NOVO IMPORT AQUI!
 import com.kairon.repository.FinancialRecordRepository;
 import com.kairon.repository.ProfessionalRepository;
 import com.kairon.repository.UserRepository;
@@ -66,6 +67,14 @@ public class FinancialController {
         return ResponseEntity.ok(allMovements);
     }
 
+    // 👇 NOVA ROTA PARA A TABELA DE HISTÓRICO MENSAL (SWIPE) 👇
+    @GetMapping("/monthly-history")
+    @Operation(summary = "Get detailed monthly history for the data grid (PLUS Only)")
+    public ResponseEntity<List<MonthlyHistoryResponse>> getMonthlyHistory() {
+        String companyId = SecurityUtils.getCurrentCompanyId();
+        return ResponseEntity.ok(financialService.getMonthlyHistory(companyId));
+    }
+
     // --- MÉTODOS ANTIGOS MANTIDOS (Atualizados para usar /financial) ---
 
     @GetMapping("/revenue-chart")
@@ -107,7 +116,6 @@ public class FinancialController {
     }
 
     // --- MAPPER MANUAL (Para garantir que Vendas de Produtos apareçam com o nome certo) ---
-    // --- MAPPER MANUAL ---
     private FinancialResponse mapToResponse(FinancialRecord r) {
         return FinancialResponse.builder()
                 .id(r.getId())

@@ -6,18 +6,15 @@ import com.kairon.domain.enums.AppointmentStatus;
 import com.kairon.domain.enums.FinancialType;
 import com.kairon.domain.enums.Role;
 import com.kairon.dto.request.DashboardRequest;
-import com.kairon.dto.request.FinancialFilterRequest;
 import com.kairon.dto.request.FinancialRequest;
 import com.kairon.dto.response.DashboardResponse;
 import com.kairon.dto.response.FinancialResponse;
+import com.kairon.dto.response.MonthlyHistoryResponse; // 👈 NOVO DTO
 import com.kairon.exception.BusinessException;
 import com.kairon.repository.*;
 import com.kairon.security.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +25,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.TextStyle;
 import java.time.temporal.TemporalAdjusters;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -66,29 +64,21 @@ public class FinancialService {
     }
 
     /* =========================
-       DASHBOARD (SOMA TUDO)
+       DASHBOARD PRINCIPAL
        ========================= */
 
     @Transactional(readOnly = true)
     public DashboardResponse getDashboard(String companyId, DashboardRequest request) {
 
-        // --- TRAVA FREEMIUM CORRIGIDA ---
-        // Permite "day" e "month" para contas Free.
-        // Bloqueia "week", "year" e datas retroativas manuais.
         if (!planGuard.isPlus(companyId)) {
             String requestedPeriod = request.getPeriod() != null ? request.getPeriod().toLowerCase() : "month";
-
-            // Se tentar burlar pedindo semana ou ano, forçamos para o mês atual
             if (!requestedPeriod.equals("day") && !requestedPeriod.equals("month")) {
                 request.setPeriod("month");
             }
-
-            // Remove datas customizadas para evitar buscar histórico passado sem pagar
             request.setStartDate(null);
             request.setEndDate(null);
         }
 
-        // 1. LÓGICA DE DATAS
         LocalDateTime startDate;
         LocalDateTime endDate = request.getEndDate() != null
                 ? request.getEndDate().with(LocalTime.MAX)
@@ -116,11 +106,9 @@ public class FinancialService {
             }
         }
 
-        // 2. BUSCAS
         List<FinancialRecord> financialRecords = financialRecordRepository.findByCompanyIdAndReferenceDateBetween(companyId, startDate, endDate);
         List<Appointment> appointments = appointmentRepository.findByCompanyIdAndStartTimeBetweenAndStatus(companyId, startDate, endDate, AppointmentStatus.COMPLETED);
 
-        // 3. FILTRO PROFISSIONAL
         String currentUserId = SecurityUtils.getCurrentUserId();
         User currentUser = userRepository.findById(currentUserId).orElseThrow();
 
@@ -130,7 +118,6 @@ public class FinancialService {
             appointments = appointments.stream().filter(a -> a.getProfessional() != null && a.getProfessional().getId().equals(prof.getId())).collect(Collectors.toList());
         }
 
-        // 4. SOMAS
         BigDecimal recordsRevenue = financialRecords.stream().filter(r -> r.getType() == FinancialType.INCOME).map(FinancialRecord::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal servicesRevenue = appointments.stream().map(Appointment::getTotalPrice).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalExpenses = financialRecords.stream().filter(r -> r.getType() == FinancialType.EXPENSE).map(FinancialRecord::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -141,7 +128,6 @@ public class FinancialService {
 
         BigDecimal averageTicket = totalCount > 0 ? totalRevenue.divide(BigDecimal.valueOf(totalCount), 2, RoundingMode.HALF_UP) : BigDecimal.ZERO;
 
-        // 5. GRÁFICOS
         List<DashboardResponse.DailySummary> dailyEvolution = calculateCombinedDailyEvolution(financialRecords, appointments, startDate, endDate);
         List<DashboardResponse.ServiceSummary> topServices = calculateCombinedTopServices(financialRecords, appointments);
 
@@ -156,16 +142,89 @@ public class FinancialService {
                 .busyHours(new ArrayList<>())
                 .build();
     }
-    // --- GRÁFICO DE DESPESAS INTELIGENTE (PLUS ONLY) ---
+
+
+    /* =========================
+       NOVO: HISTÓRICO MENSAL DETALHADO (Para a Tabela do App)
+       ========================= */
+    @Transactional(readOnly = true)
+    public List<MonthlyHistoryResponse> getMonthlyHistory(String companyId) {
+        // Trava: Apenas assinantes PLUS têm acesso ao histórico retroativo
+        planGuard.checkPlusAccess(companyId);
+
+        // Pega os últimos 6 meses
+        LocalDateTime startDate = LocalDate.now().minusMonths(5).with(TemporalAdjusters.firstDayOfMonth()).atStartOfDay();
+        LocalDateTime endDate = LocalDate.now().atTime(LocalTime.MAX);
+
+        List<FinancialRecord> records = financialRecordRepository.findByCompanyIdAndReferenceDateBetween(companyId, startDate, endDate);
+        List<Appointment> appointments = appointmentRepository.findByCompanyIdAndStartTimeBetweenAndStatus(companyId, startDate, endDate, AppointmentStatus.COMPLETED);
+
+        Map<String, MonthlyHistoryResponse> monthlyMap = new LinkedHashMap<>();
+
+        // Gera os 6 meses vazios para garantir que apareçam na tabela mesmo sem vendas
+        for (int i = 0; i < 6; i++) {
+            LocalDate monthDate = LocalDate.now().minusMonths(i);
+            String key = monthDate.getYear() + "-" + String.format("%02d", monthDate.getMonthValue());
+            String periodName = monthDate.getMonth().getDisplayName(TextStyle.FULL, new Locale("pt", "BR")) + " " + monthDate.getYear();
+            // Capitaliza a primeira letra (ex: "fevereiro" -> "Fevereiro")
+            periodName = periodName.substring(0, 1).toUpperCase() + periodName.substring(1);
+
+            monthlyMap.put(key, MonthlyHistoryResponse.builder()
+                    .id(key)
+                    .period(periodName)
+                    .income(0.0)
+                    .expense(0.0)
+                    .profit(0.0)
+                    .margin("0%")
+                    .build());
+        }
+
+        // Soma Entradas e Saídas dos Registros Financeiros (Vendas Avulsas e Despesas)
+        for (FinancialRecord r : records) {
+            String key = r.getReferenceDate().getYear() + "-" + String.format("%02d", r.getReferenceDate().getMonthValue());
+            MonthlyHistoryResponse month = monthlyMap.get(key);
+            if (month != null) {
+                if (r.getType() == FinancialType.INCOME) {
+                    month.setIncome(month.getIncome() + r.getAmount().doubleValue());
+                } else if (r.getType() == FinancialType.EXPENSE) {
+                    month.setExpense(month.getExpense() + r.getAmount().doubleValue());
+                }
+            }
+        }
+
+        // Soma Entradas dos Serviços (Agendamentos Concluídos)
+        for (Appointment a : appointments) {
+            String key = a.getStartTime().getYear() + "-" + String.format("%02d", a.getStartTime().getMonthValue());
+            MonthlyHistoryResponse month = monthlyMap.get(key);
+            if (month != null) {
+                month.setIncome(month.getIncome() + a.getTotalPrice().doubleValue());
+            }
+        }
+
+        // Calcula Lucro e Margem
+        for (MonthlyHistoryResponse month : monthlyMap.values()) {
+            double profit = month.getIncome() - month.getExpense();
+            month.setProfit(profit);
+
+            if (month.getIncome() > 0) {
+                double marginCalc = (profit / month.getIncome()) * 100;
+                month.setMargin(String.format("%.0f%%", marginCalc));
+            }
+        }
+
+        return new ArrayList<>(monthlyMap.values());
+    }
+
+
+    /* =========================
+       GRÁFICO DE DESPESAS (PLUS ONLY)
+       ========================= */
 
     @Transactional(readOnly = true)
     public List<com.kairon.dto.response.CategorySumResponse> getExpensesChartData(String companyId, DashboardRequest request) {
 
-        // --- TRAVA FREEMIUM: BLOQUEIO TOTAL ---
-        // Apenas usuários PLUS podem ver o detalhamento de onde gastam o dinheiro.
         planGuard.checkPlusAccess(companyId);
 
-        // Lógica de Datas
         LocalDateTime startDate;
         LocalDateTime endDate = request.getEndDate() != null ? request.getEndDate().with(LocalTime.MAX) : LocalDate.now().atTime(LocalTime.MAX);
         String period = request.getPeriod() != null ? request.getPeriod().toLowerCase() : "month";

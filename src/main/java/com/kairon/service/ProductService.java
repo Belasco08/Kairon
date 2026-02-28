@@ -12,7 +12,10 @@ import com.kairon.dto.request.ProductRequest;
 import com.kairon.dto.response.ProductResponse;
 import com.kairon.exception.BusinessException;
 import com.kairon.repository.UserRepository;
-import jakarta.transaction.Transactional; // Atenção ao import correto
+
+// 👇 IMPORT CORRIGIDO: Usando o do Spring para habilitar o readOnly=true
+import org.springframework.transaction.annotation.Transactional;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -67,6 +70,8 @@ public class ProductService {
         return mapToResponse(savedProduct);
     }
 
+    // 👇 SOLUÇÃO APLICADA: Transação apenas de leitura para o Postgres não barrar a foto
+    @Transactional(readOnly = true)
     public List<ProductResponse> listByCompany(String companyId) {
         // Listagem geralmente é liberada para visualização, mas a criação é travada.
         return productRepository.findByCompanyIdAndIsActiveTrue(companyId)
