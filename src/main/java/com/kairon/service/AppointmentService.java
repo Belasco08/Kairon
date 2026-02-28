@@ -310,6 +310,34 @@ public class AppointmentService {
                 ? appointment.getAppointmentServices().stream().map(i -> AppointmentServiceResponse.builder()
                 .id(i.getService().getId()).name(i.getService().getName()).price(i.getPrice().doubleValue()).duration(i.getDuration()).build()).toList() : List.of();
 
+        // 👇 LÓGICA DO HISTÓRICO: Busca a última visita do cliente
+        String lastServiceName = null;
+        String lastServiceDate = null;
+
+        if (appointment.getClient() != null) {
+            // Pega todos os agendamentos anteriores a este (que já estão concluídos)
+            List<Appointment> history = appointmentRepository.findByCompanyIdAndClientId(
+                            appointment.getCompany().getId(),
+                            appointment.getClient().getId()
+                    ).stream()
+                    .filter(a -> a.getStatus() == AppointmentStatus.COMPLETED)
+                    .filter(a -> a.getStartTime().isBefore(appointment.getStartTime()))
+                    .sorted((a, b) -> b.getStartTime().compareTo(a.getStartTime())) // Ordena do mais recente pro mais antigo
+                    .toList();
+
+            if (!history.isEmpty()) {
+                Appointment lastAppt = history.get(0);
+                lastServiceDate = lastAppt.getStartTime().toString(); // O Front-end usa o parseISO para formatar
+
+                if (lastAppt.getAppointmentServices() != null && !lastAppt.getAppointmentServices().isEmpty()) {
+                    // Pega o nome do primeiro serviço feito naquela data
+                    lastServiceName = lastAppt.getAppointmentServices().iterator().next().getService().getName();
+                } else {
+                    lastServiceName = "Serviço Padrão";
+                }
+            }
+        }
+
         return AppointmentResponse.builder()
                 .id(appointment.getId())
                 .startTime(appointment.getStartTime())
@@ -323,6 +351,8 @@ public class AppointmentService {
                 .professionalId(appointment.getProfessional() != null ? appointment.getProfessional().getId() : null)
                 .services(servicesList)
                 .serviceNames(servicesList.stream().map(AppointmentServiceResponse::getName).collect(Collectors.toList()))
+                .lastServiceName(lastServiceName) // 👈 Adicionado
+                .lastServiceDate(lastServiceDate) // 👈 Adicionado
                 .build();
     }
 }

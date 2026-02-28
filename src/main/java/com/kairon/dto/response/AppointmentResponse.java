@@ -29,9 +29,12 @@ public class AppointmentResponse {
     private String professionalId;
     private String professionalName;
 
-    // ⚠️ APENAS ISSO
     private List<AppointmentServiceResponse> services;
     private List<String> serviceNames;
+
+    // 👇 ADICIONADO: Campos para o Histórico do Cliente
+    private String lastServiceName;
+    private String lastServiceDate;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
