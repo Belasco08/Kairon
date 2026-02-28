@@ -43,9 +43,7 @@ public class FinancialService {
     private final UserRepository userRepository;
     private final PlanGuard planGuard;
 
-    /* =========================
-       LISTAGEM UNIFICADA (EXTRATO)
-       ========================= */
+
 
     /* =========================
        LISTAGEM UNIFICADA (EXTRATO)
@@ -61,6 +59,68 @@ public class FinancialService {
         return records.stream()
                 .map(this::mapRecordToResponse)
                 .collect(Collectors.toList());
+    }
+
+
+    /* =========================
+       NOVO: HISTÓRICO SEMANAL (Para a Tabela do App)
+       ========================= */
+    @Transactional(readOnly = true)
+    public List<MonthlyHistoryResponse> getWeeklyHistory(String companyId) {
+        planGuard.checkPlusAccess(companyId);
+
+        // Pega as últimas 6 semanas
+        LocalDateTime startDate = LocalDate.now().minusWeeks(5).with(DayOfWeek.MONDAY).atStartOfDay();
+        LocalDateTime endDate = LocalDate.now().atTime(LocalTime.MAX);
+
+        // Busca apenas da fonte de verdade (FinancialRecord) para não duplicar!
+        List<FinancialRecord> records = financialRecordRepository.findByCompanyIdAndReferenceDateBetween(companyId, startDate, endDate);
+
+        Map<String, MonthlyHistoryResponse> weeklyMap = new LinkedHashMap<>();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM");
+
+        for (int i = 0; i < 6; i++) {
+            LocalDate startOfWeek = LocalDate.now().minusWeeks(i).with(DayOfWeek.MONDAY);
+            LocalDate endOfWeek = startOfWeek.plusDays(6);
+
+            String key = startOfWeek.toString();
+            String periodName = startOfWeek.format(formatter) + " até " + endOfWeek.format(formatter);
+
+            // Reaproveitamos o MonthlyHistoryResponse, pois os campos são os mesmos!
+            weeklyMap.put(key, MonthlyHistoryResponse.builder()
+                    .id(key)
+                    .period(periodName)
+                    .income(0.0)
+                    .expense(0.0)
+                    .profit(0.0)
+                    .margin("0%")
+                    .build());
+        }
+
+        for (FinancialRecord r : records) {
+            LocalDate startOfWeek = r.getReferenceDate().toLocalDate().with(DayOfWeek.MONDAY);
+            String key = startOfWeek.toString();
+            MonthlyHistoryResponse week = weeklyMap.get(key);
+
+            if (week != null) {
+                if (r.getType() == FinancialType.INCOME) {
+                    week.setIncome(week.getIncome() + r.getAmount().doubleValue());
+                } else if (r.getType() == FinancialType.EXPENSE) {
+                    week.setExpense(week.getExpense() + r.getAmount().doubleValue());
+                }
+            }
+        }
+
+        for (MonthlyHistoryResponse week : weeklyMap.values()) {
+            double profit = week.getIncome() - week.getExpense();
+            week.setProfit(profit);
+            if (week.getIncome() > 0) {
+                double marginCalc = (profit / week.getIncome()) * 100;
+                week.setMargin(String.format("%.0f%%", marginCalc));
+            }
+        }
+
+        return new ArrayList<>(weeklyMap.values());
     }
 
     /* =========================

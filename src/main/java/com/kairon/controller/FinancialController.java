@@ -132,6 +132,12 @@ public class FinancialController {
     }
 
 
+    @GetMapping("/weekly-history")
+    public ResponseEntity<List<MonthlyHistoryResponse>> getWeeklyHistory() {
+        return ResponseEntity.ok(financialService.getWeeklyHistory(SecurityUtils.getCurrentCompanyId()));
+    }
+
+
     @GetMapping("/expenses-chart")
     public ResponseEntity<List<CategorySumResponse>> getExpensesChart(
             @Valid @ModelAttribute DashboardRequest request) {
