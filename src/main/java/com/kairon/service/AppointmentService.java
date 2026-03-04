@@ -134,6 +134,8 @@ public class AppointmentService {
         return appointmentRepository.findByCompanyAndDateRange(companyId, date.atStartOfDay(), date.plusDays(1).atStartOfDay()).stream().map(this::buildResponse).toList();
     }
 
+
+
     /* ================= UPDATE ================= */
 
     @Transactional
@@ -145,13 +147,33 @@ public class AppointmentService {
         try { newStatus = AppointmentStatus.valueOf(request.getStatus().toString()); }
         catch (Exception e) { throw new BusinessException("Status inválido: " + request.getStatus()); }
 
-        if (appointment.getStatus() == newStatus) return buildResponse(appointment);
+        if (appointment.getStatus() == newStatus && appointment.getIsPaid().equals(request.getIsPaid())) {
+            return buildResponse(appointment);
+        }
 
         appointment.setStatus(newStatus);
         if (request.getReason() != null) appointment.setCancellationReason(request.getReason());
 
+        // Atualiza a flag de pagamento (se foi pago ou fiado)
+        if (request.getIsPaid() != null) {
+            appointment.setIsPaid(request.getIsPaid());
+        }
+
+        // SE O CORTE FOI CONCLUÍDO, VAMOS PROCESSAR O DINHEIRO!
         if (newStatus == AppointmentStatus.COMPLETED) {
-            processFinancialSplit(appointment);
+
+            if (appointment.getIsPaid()) {
+                // Cenário 1: Pago na hora! Vai direto pro fluxo de caixa (Lucro).
+                processFinancialSplit(appointment);
+            } else {
+                // Cenário 2: FIADO! Adiciona o valor na conta do cliente e NÃO gera extrato financeiro.
+                Client client = appointment.getClient();
+                BigDecimal currentDebt = client.getDebtBalance() != null ? client.getDebtBalance() : BigDecimal.ZERO;
+                client.setDebtBalance(currentDebt.add(appointment.getTotalPrice()));
+                clientRepository.save(client);
+
+                System.out.println(">>> FIADO REGISTRADO: Cliente " + client.getName() + " agora deve R$ " + client.getDebtBalance());
+            }
         }
 
         return buildResponse(appointmentRepository.save(appointment));

@@ -1,13 +1,13 @@
 package com.kairon.repository;
 
 import com.kairon.domain.entity.Appointment;
-import com.kairon.domain.enums.AppointmentStatus; // 👈 Importante ter esse import
+import com.kairon.domain.enums.AppointmentStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-import java.time.LocalDateTime;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -17,19 +17,22 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
 
     // --- MÉTODOS BÁSICOS ---
     List<Appointment> findByCompanyId(String companyId);
+
     List<Appointment> findByCompanyIdAndProfessionalId(String companyId, String professionalId);
+
     @Query("SELECT a FROM Appointment a WHERE a.company.id = :companyId AND a.client.id = :clientId ORDER BY a.startTime DESC")
     List<Appointment> findByCompanyIdAndClientId(
             @Param("companyId") String companyId,
             @Param("clientId") String clientId
     );
+
     Optional<Appointment> findByIdAndCompanyId(String id, String companyId);
 
     // Método antigo usado na agenda
     List<Appointment> findByProfessionalIdAndStartTimeBetween(String professionalId, LocalDateTime start, LocalDateTime end);
 
     // ============================================
-    //      NOVOS MÉTODOS PARA O FINANCEIRO (CORREÇÃO)
+    //      MÉTODOS PARA O FINANCEIRO (EXTRATO)
     // ============================================
 
     // 1. Busca cortes concluídos num intervalo de datas (Para somar no Dashboard)
@@ -46,6 +49,8 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
             AppointmentStatus status
     );
 
+    List<Appointment> findByCompanyIdAndStatus(String companyId, AppointmentStatus status);
+
     // ============================================
     //              VALIDAÇÕES (AGENDA)
     // ============================================
@@ -60,6 +65,18 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
             @Param("professionalId") String professionalId,
             @Param("startTime") LocalDateTime startTime,
             @Param("endTime") LocalDateTime endTime
+    );
+
+    @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM Appointment a " +
+            "WHERE a.professional.id = :professionalId " +
+            "AND a.id != :appointmentId " +
+            "AND a.status NOT IN ('CANCELLED', 'NO_SHOW') " +
+            "AND (a.startTime < :endTime AND a.endTime > :startTime)")
+    boolean existsByProfessionalAndDateOverlapAndIdNot(
+            @Param("professionalId") String professionalId,
+            @Param("startTime") LocalDateTime startTime,
+            @Param("endTime") LocalDateTime endTime,
+            @Param("appointmentId") String appointmentId
     );
 
     // ============================================
@@ -97,7 +114,6 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
     //              CONTAGENS ANTIGAS
     // ============================================
 
-    // 1. Contagem Total (Owner)
     @Query("SELECT COUNT(a) FROM Appointment a " +
             "WHERE a.company.id = :companyId " +
             "AND a.status = 'COMPLETED' " +
@@ -109,7 +125,6 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
             @Param("end") LocalDateTime end
     );
 
-    // 2. Contagem Profissional
     @Query("SELECT COUNT(a) FROM Appointment a " +
             "WHERE a.company.id = :companyId " +
             "AND a.professional.id = :professionalId " +
@@ -123,22 +138,23 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
             @Param("endDate") LocalDateTime endDate
     );
 
+    // =========================================================================
+    // 👇 NOVAS QUERIES: GAMIFICAÇÃO DA EQUIPE (O "VIDEOGAME" DO PROFISSIONAL)
+    // =========================================================================
 
-
-// ... dentro do seu AppointmentRepository interface ...
-
-    @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM Appointment a " +
-            "WHERE a.professional.id = :professionalId " +
-            "AND a.id != :appointmentId " +
-            "AND a.status NOT IN ('CANCELLED', 'NO_SHOW') " +
-            "AND (a.startTime < :endTime AND a.endTime > :startTime)")
-    boolean existsByProfessionalAndDateOverlapAndIdNot(
+    // 1. Calcula quanto o profissional já faturou HOJE (Soma dos cortes concluídos dele)
+    @Query("SELECT SUM(a.totalPrice) FROM Appointment a " +
+            "WHERE a.company.id = :companyId " +
+            "AND a.professional.id = :professionalId " +
+            "AND a.status = :status " +
+            "AND a.startTime >= :startOfDay " +
+            "AND a.startTime <= :endOfDay")
+    BigDecimal sumProfessionalRevenueByDateRangeAndStatus(
+            @Param("companyId") String companyId,
             @Param("professionalId") String professionalId,
-            @Param("startTime") LocalDateTime startTime,
-            @Param("endTime") LocalDateTime endTime,
-            @Param("appointmentId") String appointmentId);
-
-    List<Appointment> findByCompanyIdAndStatus(String companyId, AppointmentStatus status);
-
+            @Param("startOfDay") LocalDateTime startOfDay,
+            @Param("endOfDay") LocalDateTime endOfDay,
+            @Param("status") AppointmentStatus status
+    );
 
 }

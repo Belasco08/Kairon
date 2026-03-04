@@ -124,7 +124,7 @@ public class FinancialService {
     }
 
     /* =========================
-       DASHBOARD PRINCIPAL
+       DASHBOARD PRINCIPAL (COM GAMIFICAÇÃO)
        ========================= */
 
     @Transactional(readOnly = true)
@@ -150,19 +150,10 @@ public class FinancialService {
             startDate = request.getStartDate().toLocalDate().atStartOfDay();
         } else {
             switch (period) {
-                case "day":
-                    startDate = LocalDate.now().atStartOfDay();
-                    break;
-                case "week":
-                    startDate = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).atStartOfDay();
-                    break;
-                case "year":
-                    startDate = LocalDate.now().with(TemporalAdjusters.firstDayOfYear()).atStartOfDay();
-                    break;
-                case "month":
-                default:
-                    startDate = LocalDate.now().with(TemporalAdjusters.firstDayOfMonth()).atStartOfDay();
-                    break;
+                case "day": startDate = LocalDate.now().atStartOfDay(); break;
+                case "week": startDate = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).atStartOfDay(); break;
+                case "year": startDate = LocalDate.now().with(TemporalAdjusters.firstDayOfYear()).atStartOfDay(); break;
+                case "month": default: startDate = LocalDate.now().with(TemporalAdjusters.firstDayOfMonth()).atStartOfDay(); break;
             }
         }
 
@@ -172,11 +163,46 @@ public class FinancialService {
         String currentUserId = SecurityUtils.getCurrentUserId();
         User currentUser = userRepository.findById(currentUserId).orElseThrow();
 
+        // ==========================================================
+        // 👇 VARIÁVEIS DA GAMIFICAÇÃO (VIDEOGAME DA EQUIPE) 👇
+        // ==========================================================
+        double todayRevenueCalc = 0.0;
+        int todayAppointmentsCount = 0;
+        double dailyGoalCalc = 200.0; // 🎯 META FIXA DO MVP (R$ 200 por dia). No futuro, pode vir do banco!
+        String motivationMsg = "Bom dia! Vamos fazer dinheiro hoje!";
+
         if (currentUser.getRole() == Role.PROFESSIONAL) {
             Professional prof = professionalRepository.findByUserId(currentUserId).orElseThrow();
+
+            // Filtra os dados gerais apenas para este profissional
             financialRecords = financialRecords.stream().filter(r -> r.getProfessional() != null && r.getProfessional().getId().equals(prof.getId())).collect(Collectors.toList());
             appointments = appointments.stream().filter(a -> a.getProfessional() != null && a.getProfessional().getId().equals(prof.getId())).collect(Collectors.toList());
+
+            // 🎮 CÁLCULO EXCLUSIVO DO DIA DE HOJE PARA A BARRA DE XP 🎮
+            LocalDateTime startOfToday = LocalDate.now().atStartOfDay();
+            LocalDateTime endOfToday = LocalDate.now().atTime(LocalTime.MAX);
+
+            // Usa aquela query inteligente que fizemos no passo anterior
+            BigDecimal todayRev = appointmentRepository.sumProfessionalRevenueByDateRangeAndStatus(
+                    companyId, prof.getId(), startOfToday, endOfToday, AppointmentStatus.COMPLETED);
+            todayRevenueCalc = todayRev != null ? todayRev.doubleValue() : 0.0;
+
+            todayAppointmentsCount = (int) appointments.stream()
+                    .filter(a -> a.getStartTime().toLocalDate().isEqual(LocalDate.now()))
+                    .count();
+
+            // 🏆 MOTOR DE MOTIVAÇÃO
+            if (todayRevenueCalc >= dailyGoalCalc) {
+                motivationMsg = "🔥 Meta batida! Você é uma máquina de fazer dinheiro!";
+            } else if (todayRevenueCalc >= dailyGoalCalc * 0.5) {
+                motivationMsg = "🚀 Falta pouco pra bater a meta de hoje, acelera!";
+            } else if (todayRevenueCalc > 0) {
+                motivationMsg = "✂️ O dia começou bem, bora fechar essa meta!";
+            } else {
+                motivationMsg = "✂️ Bora dar o primeiro tapa no visual do dia!";
+            }
         }
+        // ==========================================================
 
         BigDecimal recordsRevenue = financialRecords.stream().filter(r -> r.getType() == FinancialType.INCOME).map(FinancialRecord::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal servicesRevenue = appointments.stream().map(Appointment::getTotalPrice).reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -200,6 +226,11 @@ public class FinancialService {
                 .dailyEvolution(dailyEvolution)
                 .topServices(topServices)
                 .busyHours(new ArrayList<>())
+                // 👇 INJETANDO O VIDEOGAME NA RESPOSTA 👇
+                .todayRevenue(todayRevenueCalc)
+                .todayAppointments(todayAppointmentsCount)
+                .dailyGoal(dailyGoalCalc)
+                .motivationMessage(motivationMsg)
                 .build();
     }
 
@@ -381,6 +412,96 @@ public class FinancialService {
         return itemMap.entrySet().stream()
                 .map(e -> DashboardResponse.ServiceSummary.builder().serviceName(e.getKey()).revenue(e.getValue()).count(countMap.get(e.getKey())).build())
                 .sorted((a, b) -> Double.compare(b.getRevenue(), a.getRevenue())).limit(5).collect(Collectors.toList());
+    }
+
+
+    /* =========================================================
+       👇 NOVOS MÉTODOS: ACERTO DE CONTAS DA EQUIPE (FECHAMENTO)
+       ========================================================= */
+
+    @Transactional(readOnly = true)
+    public com.kairon.dto.response.SettlementResponse getProfessionalSettlement(String companyId, String professionalId) {
+        // Busca o profissional
+        Professional prof = professionalRepository.findByIdAndCompanyId(professionalId, companyId)
+                .orElseThrow(() -> new BusinessException("Profissional não encontrado"));
+
+        // Busca TUDO que está PENDENTE para este profissional (Comissões e Vales)
+        List<FinancialRecord> pendingRecords = financialRecordRepository.findByCompanyIdOrderByReferenceDateDesc(companyId)
+                .stream()
+                .filter(r -> r.getProfessional() != null && r.getProfessional().getId().equals(professionalId))
+                .filter(r -> "PENDING".equals(r.getStatus()))
+                .collect(Collectors.toList());
+
+        double totalCommission = 0.0;
+        double totalAdvances = 0.0; // Vales ou consumo interno
+
+        for (FinancialRecord record : pendingRecords) {
+            if ("COMISSAO".equals(record.getCategory())) {
+                totalCommission += record.getAmount().doubleValue();
+            } else if ("VALE".equals(record.getCategory()) || "CONSUMO".equals(record.getCategory())) {
+                // Se ele pegou um vale da gaveta, é descontado do acerto
+                totalAdvances += record.getAmount().doubleValue();
+            }
+        }
+
+        double netPayout = totalCommission - totalAdvances;
+
+        return com.kairon.dto.response.SettlementResponse.builder()
+                .professionalId(prof.getId())
+                .professionalName(prof.getName())
+                .totalCommission(totalCommission)
+                .totalAdvances(totalAdvances)
+                .netPayout(netPayout)
+                .pendingRecords(pendingRecords.stream().map(this::mapRecordToResponse).collect(Collectors.toList()))
+                .build();
+    }
+
+
+    @Transactional
+    public void addProfessionalAdvance(String companyId, String professionalId, Double amount, String description) {
+        Professional prof = professionalRepository.findByIdAndCompanyId(professionalId, companyId)
+                .orElseThrow(() -> new BusinessException("Profissional não encontrado"));
+
+        FinancialRecord advance = FinancialRecord.builder()
+                .type(FinancialType.EXPENSE) // É uma despesa para a empresa (adiantamento)
+                .amount(BigDecimal.valueOf(amount))
+                .title("Vale / Consumo")
+                .description(description != null && !description.isEmpty() ? description : "Adiantamento ou Consumo interno")
+                .category("VALE")
+                .status("PENDING") // Fica pendente para ser abatido no Acerto de Contas!
+                .company(prof.getCompany())
+                .professional(prof)
+                .referenceDate(LocalDateTime.now())
+                .paymentMethod("INTERNO")
+                .build();
+
+        financialRecordRepository.save(advance);
+    }
+
+    @Transactional
+    public void payProfessionalSettlement(String companyId, String professionalId) {
+        // Trava de segurança da assinatura
+        planGuard.checkPlusAccess(companyId);
+
+        // Busca os mesmos registros pendentes
+        List<FinancialRecord> pendingRecords = financialRecordRepository.findByCompanyIdOrderByReferenceDateDesc(companyId)
+                .stream()
+                .filter(r -> r.getProfessional() != null && r.getProfessional().getId().equals(professionalId))
+                .filter(r -> "PENDING".equals(r.getStatus()))
+                .collect(Collectors.toList());
+
+        if (pendingRecords.isEmpty()) {
+            throw new BusinessException("Não há valores pendentes para acerto deste profissional.");
+        }
+
+        // Muda todos para PAGO
+        for (FinancialRecord record : pendingRecords) {
+            record.setStatus("PAID");
+            // Se quiser, pode setar a data de pagamento real aqui:
+            // record.setUpdatedAt(LocalDateTime.now());
+        }
+
+        financialRecordRepository.saveAll(pendingRecords);
     }
 
     private FinancialResponse mapRecordToResponse(FinancialRecord r) {

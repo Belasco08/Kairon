@@ -7,6 +7,7 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import java.math.BigDecimal; // 👈 NOVO IMPORT
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -23,9 +24,7 @@ import java.util.Set;
 @AllArgsConstructor
 @Builder
 @EntityListeners(AuditingEntityListener.class)
-// --- CORREÇÃO CRUCIAL PARA O ERRO DE LOCKING ---
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
-// -----------------------------------------------
 public class Client {
 
     @Id
@@ -48,14 +47,19 @@ public class Client {
     @Column(length = 1000)
     private String notes;
 
+    // 👇 NOVA COLUNA: MOTOR DA CONTA DO CLIENTE (FIADO)
+    @Builder.Default
+    @Column(name = "debt_balance", precision = 10, scale = 2)
+    private BigDecimal debtBalance = BigDecimal.ZERO;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id", nullable = false)
     private Company company;
 
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
-    @JsonIgnore // Evita loop infinito ao enviar pro front
-    @ToString.Exclude // Evita loop infinito nos logs do console
+    @JsonIgnore
+    @ToString.Exclude
     private Set<Appointment> appointments = new HashSet<>();
 
     @Column(name = "external_id")

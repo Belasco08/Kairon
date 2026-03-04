@@ -11,4 +11,7 @@ public class AppointmentStatusRequest {
     private AppointmentStatus status;
 
     private String reason;
+
+    // 👇 ADICIONADO PARA O FIADO
+    private Boolean isPaid = true;
 }

@@ -20,14 +20,12 @@ import java.util.Set;
 @AllArgsConstructor
 @Builder
 @EntityListeners(AuditingEntityListener.class)
-// --- CORREÇÃO CRUCIAL PARA O ERRO DE LOCKING ---
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
-// -----------------------------------------------
 public class Appointment {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @EqualsAndHashCode.Include // O hash do objeto será baseado APENAS no ID
+    @EqualsAndHashCode.Include
     private String id;
 
     @Column(name = "start_time", nullable = false)
@@ -53,6 +51,11 @@ public class Appointment {
     @Column(name = "total_price", nullable = false, precision = 10, scale = 2)
     private BigDecimal totalPrice;
 
+    // 👇 NOVA FLAG: AVISA SE FOI PAGO OU PENDURADO (FIADO)
+    @Column(name = "is_paid", nullable = false)
+    @Builder.Default
+    private Boolean isPaid = true;
+
     @Column(name = "actual_price", precision = 10, scale = 2)
     private BigDecimal actualPrice;
 
@@ -76,12 +79,12 @@ public class Appointment {
 
     @OneToMany(mappedBy = "appointment", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
-    @ToString.Exclude // Limpa os logs
+    @ToString.Exclude
     private Set<AppointmentItem> appointmentServices = new HashSet<>();
 
     @OneToMany(mappedBy = "appointment", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
-    @ToString.Exclude // Limpa os logs
+    @ToString.Exclude
     private Set<FinancialRecord> financialRecords = new HashSet<>();
 
     @Column(name = "notification_sent_at")

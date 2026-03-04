@@ -19,6 +19,11 @@ public class DashboardResponse {
     private Double balance;
     private Integer appointmentCount;
     private Double averageTicket;
+    // 👇 NOVOS CAMPOS PARA A GAMIFICAÇÃO DA EQUIPE 👇
+    private Double todayRevenue;
+    private Integer todayAppointments;
+    private Double dailyGoal;
+    private String motivationMessage;
 
     private List<BusyHour> busyHours;
 

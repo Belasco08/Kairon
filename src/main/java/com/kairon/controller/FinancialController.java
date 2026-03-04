@@ -131,6 +131,31 @@ public class FinancialController {
                 .build();
     }
 
+    // 👇 ROTAS DO ACERTO DE CONTAS (FECHAMENTO)
+    @GetMapping("/settlement/{professionalId}")
+    public ResponseEntity<com.kairon.dto.response.SettlementResponse> getSettlement(
+            @PathVariable String professionalId) {
+        String companyId = SecurityUtils.getCurrentCompanyId();
+        return ResponseEntity.ok(financialService.getProfessionalSettlement(companyId, professionalId));
+    }
+
+    @PostMapping("/settlement/{professionalId}/pay")
+    public ResponseEntity<Void> paySettlement(@PathVariable String professionalId) {
+        String companyId = SecurityUtils.getCurrentCompanyId();
+        financialService.payProfessionalSettlement(companyId, professionalId);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/settlement/{professionalId}/advance")
+    public ResponseEntity<Void> addAdvance(
+            @PathVariable String professionalId,
+            @RequestParam Double amount,
+            @RequestParam(required = false) String description) {
+        String companyId = SecurityUtils.getCurrentCompanyId();
+        financialService.addProfessionalAdvance(companyId, professionalId, amount, description);
+        return ResponseEntity.ok().build();
+    }
+
 
     @GetMapping("/weekly-history")
     public ResponseEntity<List<MonthlyHistoryResponse>> getWeeklyHistory() {

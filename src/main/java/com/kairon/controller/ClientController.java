@@ -90,4 +90,16 @@ public class ClientController {
 
         return ResponseEntity.ok(response);
     }
+
+    // 👇 NOVA ROTA PARA CLIENTES SUMIDOS
+    @GetMapping("/missing")
+    public ResponseEntity<Page<com.kairon.dto.response.MissingClientResponse>> getMissingClients(
+            @RequestParam(required = false) String professionalId,
+            @RequestParam(defaultValue = "30") int daysAway,
+            Pageable pageable) {
+
+        String companyId = SecurityUtils.getCurrentCompanyId(); // Adapte se usar outro nome para pegar a empresa
+
+        return ResponseEntity.ok(clientService.getMissingClients(companyId, professionalId, daysAway, pageable));
+    }
 }

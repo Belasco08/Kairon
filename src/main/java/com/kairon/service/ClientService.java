@@ -1,12 +1,13 @@
 package com.kairon.service;
 
-import com.kairon.domain.entity.Appointment; // Importe sua entidade Appointment
+import com.kairon.domain.entity.Appointment;
 import com.kairon.domain.entity.Client;
 import com.kairon.domain.entity.Company;
-import com.kairon.domain.enums.AppointmentStatus; // Importe seu Enum de Status
+import com.kairon.domain.enums.AppointmentStatus;
 import com.kairon.dto.request.ClientRequest;
 import com.kairon.dto.response.ClientListResponse;
 import com.kairon.dto.response.ClientResponse;
+import com.kairon.dto.response.MissingClientResponse; // 👈 NOVO IMPORT
 import com.kairon.exception.BusinessException;
 import com.kairon.mapper.ClientMapper;
 import com.kairon.repository.ClientRepository;
@@ -18,8 +19,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit; // 👈 NOVO IMPORT
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -88,13 +89,11 @@ public class ClientService {
 
         Page<Client> clients;
 
-        // LÓGICA DE FILTRO: Se tiver professionalId, usa as queries novas
         if (professionalId != null && !professionalId.isBlank()) {
             clients = (search != null && !search.isBlank())
                     ? clientRepository.searchByCompanyIdAndProfessionalId(companyId, professionalId, search.trim(), pageable)
                     : clientRepository.findByCompanyIdAndProfessionalId(companyId, professionalId, pageable);
         } else {
-            // Comportamento padrão (Admin ou sem filtro)
             clients = (search != null && !search.isBlank())
                     ? clientRepository.searchByCompanyId(companyId, search.trim(), pageable)
                     : clientRepository.findByCompanyId(companyId, pageable);
@@ -121,6 +120,52 @@ public class ClientService {
                 .collect(Collectors.toList());
     }
 
+    /* =========================================================
+       👇 NOVO: SERVIÇO DE CLIENTES SUMIDOS (DINHEIRO NA MESA)
+       ========================================================= */
+    @Transactional(readOnly = true)
+    public Page<MissingClientResponse> getMissingClients(String companyId, String professionalId, int daysAway, Pageable pageable) {
+        baseService.validateCompanyAccess(companyId, companyId);
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime cutoffDate = now.minusDays(daysAway); // Data limite (ex: hoje menos 30 dias)
+        List<AppointmentStatus> pendingStatuses = List.of(AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED);
+
+        Page<Client> clients;
+        if (professionalId != null && !professionalId.isBlank()) {
+            clients = clientRepository.findMissingClientsByProfessional(companyId, professionalId, cutoffDate, now, AppointmentStatus.COMPLETED, pendingStatuses, pageable);
+        } else {
+            clients = clientRepository.findMissingClients(companyId, cutoffDate, now, AppointmentStatus.COMPLETED, pendingStatuses, pageable);
+        }
+
+        return clients.map(client -> {
+            // Pega o último agendamento concluído para extrair a data exata e o serviço
+            Appointment lastApp = getCompletedAppointments(client).stream()
+                    .max(Comparator.comparing(Appointment::getStartTime))
+                    .orElse(null);
+
+            long daysSinceLastVisit = 0;
+            String lastServiceName = "Serviço";
+
+            if (lastApp != null) {
+                daysSinceLastVisit = ChronoUnit.DAYS.between(lastApp.getStartTime(), now);
+                // Pega o nome do primeiro serviço realizado naquele agendamento (se existir)
+                if (lastApp.getAppointmentServices() != null && !lastApp.getAppointmentServices().isEmpty()) {
+                    lastServiceName = lastApp.getAppointmentServices().iterator().next().getName();
+                }
+            }
+
+            return MissingClientResponse.builder()
+                    .id(client.getId())
+                    .name(client.getName())
+                    .phone(client.getPhone())
+                    .daysAway(daysSinceLastVisit)
+                    .lastService(lastServiceName)
+                    .lastVisitDate(lastApp != null ? lastApp.getStartTime() : null)
+                    .build();
+        });
+    }
+
     /* =========================
        HELPERS DE CÁLCULO
        ========================= */
@@ -132,25 +177,21 @@ public class ClientService {
     }
 
     private void enrichListResponse(ClientListResponse response, Client client) {
-        // Busca apenas agendamentos CONCLUÍDOS para calcular valores reais
         List<Appointment> completedAppointments = getCompletedAppointments(client);
 
         response.setTotalAppointments(completedAppointments.size());
 
-        // Calcula total gasto
         double totalSpent = completedAppointments.stream()
                 .mapToDouble(a -> a.getTotalPrice() != null ? a.getTotalPrice().doubleValue() : 0.0)
                 .sum();
         response.setTotalSpent(totalSpent);
 
-        // Calcula Última Visita
         LocalDateTime lastApp = completedAppointments.stream()
-                .map(Appointment::getStartTime) // Pega a data de início do agendamento
-                .max(LocalDateTime::compareTo)  // Pega a mais recente
+                .map(Appointment::getStartTime)
+                .max(LocalDateTime::compareTo)
                 .orElse(null);
 
         if (lastApp != null) {
-            // Converte para LocalDate se seu DTO usa LocalDate
             response.setLastAppointmentDate(lastApp.toLocalDate());
         } else {
             response.setLastAppointmentDate(null);
@@ -160,16 +201,13 @@ public class ClientService {
     private void calculateStatsForResponse(Client client, ClientResponse response) {
         List<Appointment> completedAppointments = getCompletedAppointments(client);
 
-        // 1. Total de Agendamentos Concluídos
         response.setTotalAppointments(completedAppointments.size());
 
-        // 2. Total Gasto (Soma dos preços)
         double totalSpent = completedAppointments.stream()
                 .mapToDouble(a -> a.getTotalPrice() != null ? a.getTotalPrice().doubleValue() : 0.0)
                 .sum();
         response.setTotalSpent(totalSpent);
 
-        // 3. Última Visita (Maior data)
         LocalDateTime lastApp = completedAppointments.stream()
                 .map(Appointment::getStartTime)
                 .max(LocalDateTime::compareTo)
@@ -181,7 +219,6 @@ public class ClientService {
         if (client.getAppointments() == null) return List.of();
 
         return client.getAppointments().stream()
-                // IMPORTANTE: Ajuste 'AppointmentStatus.COMPLETED' para o nome exato no seu Enum
                 .filter(a -> a.getStatus() == AppointmentStatus.COMPLETED)
                 .toList();
     }
