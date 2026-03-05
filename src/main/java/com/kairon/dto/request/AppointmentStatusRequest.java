@@ -14,4 +14,10 @@ public class AppointmentStatusRequest {
 
     // 👇 ADICIONADO PARA O FIADO
     private Boolean isPaid = true;
+
+    // ... seus campos atuais (status, reason, isPaid)
+
+    // 👇 ADICIONE ESTES DOIS CAMPOS 👇
+    private String paymentMethod;
+    private java.math.BigDecimal machineFeePercentage;
 }

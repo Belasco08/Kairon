@@ -19,11 +19,21 @@ public class DashboardResponse {
     private Double balance;
     private Integer appointmentCount;
     private Double averageTicket;
-    // 👇 NOVOS CAMPOS PARA A GAMIFICAÇÃO DA EQUIPE 👇
+
+    // 👇 CAMPOS DA GAMIFICAÇÃO DA EQUIPE 👇
     private Double todayRevenue;
     private Integer todayAppointments;
     private Double dailyGoal;
     private String motivationMessage;
+
+    // ==========================================
+    // 👇 NOVOS CAMPOS: PREVISIBILIDADE DE CAIXA (CFO) 👇
+    // ==========================================
+    private Double pendingExpenses; // Total de contas a pagar no período
+    private Double safeBalance;     // Lucro Seguro (Balance - PendingExpenses)
+
+    @Builder.Default
+    private List<PendingPayable> upcomingPayables = List.of(); // Lista das próximas contas
 
     private List<BusyHour> busyHours;
 
@@ -54,7 +64,6 @@ public class DashboardResponse {
         private Integer count;
     }
 
-    // 👇 ADICIONE ESTA CLASSE ESTÁTICA TAMBÉM
     @Data
     @Builder
     @NoArgsConstructor
@@ -62,5 +71,18 @@ public class DashboardResponse {
     public static class BusyHour {
         private String hour;
         private Integer count;
+    }
+
+    // 👇 NOVA CLASSE PARA AS CONTAS A PAGAR 👇
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PendingPayable {
+        private String id;
+        private String title;
+        private Double amount;
+        private String dueDate; // Data de vencimento
+        private Boolean isOverdue; // Se está atrasada
     }
 }

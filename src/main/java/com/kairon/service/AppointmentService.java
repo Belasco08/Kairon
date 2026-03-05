@@ -154,7 +154,6 @@ public class AppointmentService {
         appointment.setStatus(newStatus);
         if (request.getReason() != null) appointment.setCancellationReason(request.getReason());
 
-        // Atualiza a flag de pagamento (se foi pago ou fiado)
         if (request.getIsPaid() != null) {
             appointment.setIsPaid(request.getIsPaid());
         }
@@ -163,16 +162,14 @@ public class AppointmentService {
         if (newStatus == AppointmentStatus.COMPLETED) {
 
             if (appointment.getIsPaid()) {
-                // Cenário 1: Pago na hora! Vai direto pro fluxo de caixa (Lucro).
-                processFinancialSplit(appointment);
+                // 👇 CÁLCULO DE LUCRO REAL (Com taxa de maquininha) 👇
+                processFinancialSplit(appointment, request.getPaymentMethod(), request.getMachineFeePercentage());
             } else {
-                // Cenário 2: FIADO! Adiciona o valor na conta do cliente e NÃO gera extrato financeiro.
+                // Cenário 2: FIADO!
                 Client client = appointment.getClient();
                 BigDecimal currentDebt = client.getDebtBalance() != null ? client.getDebtBalance() : BigDecimal.ZERO;
                 client.setDebtBalance(currentDebt.add(appointment.getTotalPrice()));
                 clientRepository.save(client);
-
-                System.out.println(">>> FIADO REGISTRADO: Cliente " + client.getName() + " agora deve R$ " + client.getDebtBalance());
             }
         }
 
@@ -258,7 +255,7 @@ public class AppointmentService {
 
     /* ================= FINANCIAL (TRAVA PLUS APLICADA) ================= */
 
-    private void processFinancialSplit(Appointment appointment) {
+    private void processFinancialSplit(Appointment appointment, String paymentMethod, BigDecimal machineFeePercentage) {
         Professional prof = appointment.getProfessional();
         BigDecimal totalAmount = appointment.getTotalPrice();
         Company company = appointment.getCompany();
@@ -268,8 +265,15 @@ public class AppointmentService {
             serviceTitle = appointment.getAppointmentServices().iterator().next().getService().getName();
         }
 
-        System.out.println(">>> PROCESSANDO FINANCEIRO: " + appointment.getId());
+        // Configuração de Pagamento
+        String method = (paymentMethod != null && !paymentMethod.isEmpty()) ? paymentMethod : "DINHEIRO";
+        BigDecimal feePerc = machineFeePercentage != null ? machineFeePercentage : BigDecimal.ZERO;
 
+        // 👇 1. CÁLCULO DA TAXA DA MAQUININHA 👇
+        BigDecimal feeAmount = totalAmount.multiply(feePerc).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+        BigDecimal netAmount = totalAmount.subtract(feeAmount); // O valor que realmente sobra pra barbearia!
+
+        // 👇 2. REGISTRA A ENTRADA BRUTA 👇
         FinancialRecord incomeRecord = FinancialRecord.builder()
                 .type(FinancialType.APPOINTMENT)
                 .amount(totalAmount)
@@ -279,13 +283,30 @@ public class AppointmentService {
                 .appointment(appointment)
                 .company(company)
                 .professional(prof)
-                .paymentMethod("DINHEIRO")
+                .paymentMethod(method)
                 .status("PAID")
                 .referenceDate(LocalDateTime.now())
                 .createdAt(LocalDateTime.now())
                 .build();
-
         financialRecordRepository.save(incomeRecord);
+
+        // 👇 3. REGISTRA A DESPESA DA TAXA DA MAQUININHA (Se houver) 👇
+        if (feeAmount.compareTo(BigDecimal.ZERO) > 0) {
+            FinancialRecord taxRecord = FinancialRecord.builder()
+                    .type(FinancialType.EXPENSE)
+                    .amount(feeAmount)
+                    .title("Taxa de Pagamento (" + feePerc + "%)")
+                    .description("Taxa " + method + " - " + appointment.getClient().getName())
+                    .category("TAXA") // Criamos uma categoria separada para o dono ver pra onde vai o dinheiro
+                    .appointment(appointment)
+                    .company(company)
+                    .paymentMethod(method)
+                    .status("PAID") // Já descontado na hora pela Stone/PagSeguro
+                    .referenceDate(LocalDateTime.now())
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            financialRecordRepository.save(taxRecord);
+        }
 
         if (company.getPlan() == PlanType.FREE) {
             return;
@@ -293,8 +314,9 @@ public class AppointmentService {
 
         BigDecimal commissionRate = prof.getCommissionPercentage() != null ? prof.getCommissionPercentage() : new BigDecimal("50.00");
 
+        // 👇 4. CALCULA A COMISSÃO EM CIMA DO VALOR LÍQUIDO (netAmount) 👇
         if (commissionRate.compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal commissionAmount = totalAmount.multiply(commissionRate).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            BigDecimal commissionAmount = netAmount.multiply(commissionRate).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
 
             FinancialRecord commissionRecord = FinancialRecord.builder()
                     .type(FinancialType.EXPENSE)

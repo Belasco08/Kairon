@@ -124,7 +124,7 @@ public class FinancialService {
     }
 
     /* =========================
-       DASHBOARD PRINCIPAL (COM GAMIFICAÇÃO)
+       DASHBOARD PRINCIPAL (GAMIFICAÇÃO + CFO DIGITAL)
        ========================= */
 
     @Transactional(readOnly = true)
@@ -168,21 +168,18 @@ public class FinancialService {
         // ==========================================================
         double todayRevenueCalc = 0.0;
         int todayAppointmentsCount = 0;
-        double dailyGoalCalc = 200.0; // 🎯 META FIXA DO MVP (R$ 200 por dia). No futuro, pode vir do banco!
+        double dailyGoalCalc = 200.0; // 🎯 META FIXA DO MVP
         String motivationMsg = "Bom dia! Vamos fazer dinheiro hoje!";
 
         if (currentUser.getRole() == Role.PROFESSIONAL) {
             Professional prof = professionalRepository.findByUserId(currentUserId).orElseThrow();
 
-            // Filtra os dados gerais apenas para este profissional
             financialRecords = financialRecords.stream().filter(r -> r.getProfessional() != null && r.getProfessional().getId().equals(prof.getId())).collect(Collectors.toList());
             appointments = appointments.stream().filter(a -> a.getProfessional() != null && a.getProfessional().getId().equals(prof.getId())).collect(Collectors.toList());
 
-            // 🎮 CÁLCULO EXCLUSIVO DO DIA DE HOJE PARA A BARRA DE XP 🎮
             LocalDateTime startOfToday = LocalDate.now().atStartOfDay();
             LocalDateTime endOfToday = LocalDate.now().atTime(LocalTime.MAX);
 
-            // Usa aquela query inteligente que fizemos no passo anterior
             BigDecimal todayRev = appointmentRepository.sumProfessionalRevenueByDateRangeAndStatus(
                     companyId, prof.getId(), startOfToday, endOfToday, AppointmentStatus.COMPLETED);
             todayRevenueCalc = todayRev != null ? todayRev.doubleValue() : 0.0;
@@ -191,7 +188,6 @@ public class FinancialService {
                     .filter(a -> a.getStartTime().toLocalDate().isEqual(LocalDate.now()))
                     .count();
 
-            // 🏆 MOTOR DE MOTIVAÇÃO
             if (todayRevenueCalc >= dailyGoalCalc) {
                 motivationMsg = "🔥 Meta batida! Você é uma máquina de fazer dinheiro!";
             } else if (todayRevenueCalc >= dailyGoalCalc * 0.5) {
@@ -202,35 +198,89 @@ public class FinancialService {
                 motivationMsg = "✂️ Bora dar o primeiro tapa no visual do dia!";
             }
         }
+
+        // ==========================================================
+        // 👇 PREVISIBILIDADE DE CAIXA (CFO DIGITAL) 👇
         // ==========================================================
 
-        BigDecimal recordsRevenue = financialRecords.stream().filter(r -> r.getType() == FinancialType.INCOME).map(FinancialRecord::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        // 1. Separa as despesas em PAGAS e PENDENTES
+        List<FinancialRecord> allExpenses = financialRecords.stream()
+                .filter(r -> r.getType() == FinancialType.EXPENSE)
+                .collect(Collectors.toList());
+
+        BigDecimal paidExpenses = allExpenses.stream()
+                .filter(r -> !"PENDING".equals(r.getStatus()))
+                .map(FinancialRecord::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        List<FinancialRecord> pendingExpenseRecords = allExpenses.stream()
+                .filter(r -> "PENDING".equals(r.getStatus()))
+                .collect(Collectors.toList());
+
+        BigDecimal pendingExpensesAmount = pendingExpenseRecords.stream()
+                .map(FinancialRecord::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 2. Monta a lista das próximas 5 contas a vencer
+        List<DashboardResponse.PendingPayable> upcomingPayablesList = pendingExpenseRecords.stream()
+                .sorted(java.util.Comparator.comparing(r -> r.getReferenceDate() != null ? r.getReferenceDate() : LocalDateTime.MAX))
+                .limit(5)
+                .map(r -> DashboardResponse.PendingPayable.builder()
+                        .id(r.getId())
+                        .title(r.getTitle() != null ? r.getTitle() : "Conta a Pagar")
+                        .amount(r.getAmount().doubleValue())
+                        .dueDate(r.getReferenceDate() != null ? r.getReferenceDate().toString() : "")
+                        .isOverdue(r.getReferenceDate() != null && r.getReferenceDate().isBefore(LocalDate.now().atStartOfDay()))
+                        .build())
+                .collect(Collectors.toList());
+
+        // ==========================================================
+        // 👇 BALANÇO GERAL 👇
+        // ==========================================================
+
+        BigDecimal recordsRevenue = financialRecords.stream()
+                .filter(r -> r.getType() == FinancialType.INCOME)
+                .filter(r -> !"PENDING".equals(r.getStatus())) // Não soma dinheiro que ainda não entrou
+                .map(FinancialRecord::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
         BigDecimal servicesRevenue = appointments.stream().map(Appointment::getTotalPrice).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalExpenses = financialRecords.stream().filter(r -> r.getType() == FinancialType.EXPENSE).map(FinancialRecord::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-
         BigDecimal totalRevenue = recordsRevenue.add(servicesRevenue);
-        BigDecimal balance = totalRevenue.subtract(totalExpenses);
-        long totalCount = appointments.size() + financialRecords.stream().filter(r -> r.getType() == FinancialType.INCOME).count();
 
+        // Saldo Real = Tudo que Entrou - Despesas que JÁ FORAM PAGAS
+        BigDecimal balance = totalRevenue.subtract(paidExpenses);
+
+        // Lucro Seguro = Saldo Real - As contas que vão vencer
+        BigDecimal safeBalance = balance.subtract(pendingExpensesAmount);
+
+        long totalCount = appointments.size() + financialRecords.stream().filter(r -> r.getType() == FinancialType.INCOME).count();
         BigDecimal averageTicket = totalCount > 0 ? totalRevenue.divide(BigDecimal.valueOf(totalCount), 2, RoundingMode.HALF_UP) : BigDecimal.ZERO;
 
         List<DashboardResponse.DailySummary> dailyEvolution = calculateCombinedDailyEvolution(financialRecords, appointments, startDate, endDate);
         List<DashboardResponse.ServiceSummary> topServices = calculateCombinedTopServices(financialRecords, appointments);
 
         return DashboardResponse.builder()
+                .period(period)
                 .revenue(totalRevenue.doubleValue())
-                .expenses(totalExpenses.doubleValue())
+                .expenses(paidExpenses.doubleValue())
                 .balance(balance.doubleValue())
                 .appointmentCount((int) appointments.size())
                 .averageTicket(averageTicket.doubleValue())
                 .dailyEvolution(dailyEvolution)
                 .topServices(topServices)
-                .busyHours(new ArrayList<>())
-                // 👇 INJETANDO O VIDEOGAME NA RESPOSTA 👇
+                .busyHours(new java.util.ArrayList<>())
+
+                // INJETANDO VIDEOGAME
                 .todayRevenue(todayRevenueCalc)
                 .todayAppointments(todayAppointmentsCount)
                 .dailyGoal(dailyGoalCalc)
                 .motivationMessage(motivationMsg)
+
+                // INJETANDO CFO
+                .pendingExpenses(pendingExpensesAmount.doubleValue())
+                .safeBalance(safeBalance.doubleValue())
+                .upcomingPayables(upcomingPayablesList)
+
                 .build();
     }
 
