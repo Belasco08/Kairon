@@ -13,6 +13,7 @@ import org.springframework.stereotype.Repository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface FinancialRecordRepository extends JpaRepository<FinancialRecord, String> {
@@ -33,6 +34,8 @@ public interface FinancialRecordRepository extends JpaRepository<FinancialRecord
 
     // Para o Profissional: Vê só o dele
     List<FinancialRecord> findByProfessionalIdOrderByReferenceDateDesc(String professionalId);
+
+    Optional<FinancialRecord> findByIdAndCompanyId(String id, String companyId);
 
     /* =========================
        SOMAS (DASHBOARD)

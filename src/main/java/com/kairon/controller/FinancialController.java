@@ -170,4 +170,17 @@ public class FinancialController {
         String companyId = SecurityUtils.getCurrentCompanyId();
         return ResponseEntity.ok(financialService.getExpensesChartData(companyId, request));
     }
+
+    @PatchMapping("/records/{id}/pay")
+    public ResponseEntity<Void> payRecord(@PathVariable String id) {
+        String companyId = SecurityUtils.getCurrentCompanyId(); // Pega a empresa logada
+        financialService.payRecord(companyId, id);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/records")
+    public ResponseEntity<FinancialResponse> createRecord(@RequestBody @Valid FinancialRequest request) {
+        String companyId = SecurityUtils.getCurrentCompanyId();
+        return ResponseEntity.ok(financialService.createFinancialRecord(companyId, request));
+    }
 }

@@ -31,4 +31,8 @@ public class FinancialRequest {
     private LocalDateTime referenceDate;
 
     private String category;
+
+    // Dentro do seu FinancialRequest.java adicione:
+    private String status;
+    private String title;
 }

@@ -566,7 +566,25 @@ public class FinancialService {
     public FinancialResponse createFinancialRecord(String companyId, FinancialRequest request) {
         Company company = companyRepository.findById(companyId).orElseThrow();
         Professional professional = request.getProfessionalId() != null ? professionalRepository.findByIdAndCompanyId(request.getProfessionalId(), companyId).orElse(null) : null;
-        FinancialRecord record = FinancialRecord.builder().type(request.getType()).amount(BigDecimal.valueOf(request.getAmount())).description(request.getDescription()).title(request.getDescription()).company(company).professional(professional).referenceDate(request.getReferenceDate()).category(request.getCategory() != null ? request.getCategory() : "OUTROS").status("PAID").paymentMethod(request.getPaymentMethod()).build();
+
+        // 👇 Agora ele verifica se a conta já tá paga ou se é para o futuro (PENDING)
+        String recordStatus = (request.getStatus() != null && !request.getStatus().isEmpty())
+                ? request.getStatus()
+                : "PAID";
+
+        FinancialRecord record = FinancialRecord.builder()
+                .type(request.getType()) // Receita (INCOME) ou Despesa (EXPENSE)
+                .amount(BigDecimal.valueOf(request.getAmount()))
+                .description(request.getDescription())
+                .title(request.getDescription()) // Título da conta (ex: "Conta de Luz")
+                .company(company)
+                .professional(professional)
+                .referenceDate(request.getReferenceDate() != null ? request.getReferenceDate() : LocalDateTime.now())
+                .category(request.getCategory() != null ? request.getCategory() : "CUSTO_FIXO")
+                .status(recordStatus) // 👈 Status dinâmico!
+                .paymentMethod(request.getPaymentMethod())
+                .build();
+
         return mapRecordToResponse(financialRecordRepository.save(record));
     }
 
@@ -590,5 +608,18 @@ public class FinancialService {
 
     public List<DashboardResponse.DailySummary> getRevenueChartData(String companyId) {
         return getDashboard(companyId, new DashboardRequest()).getDailyEvolution();
+    }
+
+    @Transactional
+    public void payRecord(String companyId, String recordId) {
+        // Busca a conta a pagar
+        FinancialRecord record = financialRecordRepository.findByIdAndCompanyId(recordId, companyId)
+                .orElseThrow(() -> new BusinessException("Registro financeiro não encontrado"));
+
+        // Garante que só vamos alterar se estiver pendente
+        if ("PENDING".equals(record.getStatus())) {
+            record.setStatus("PAID");
+            financialRecordRepository.save(record);
+        }
     }
 }

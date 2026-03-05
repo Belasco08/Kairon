@@ -59,12 +59,18 @@ public class AppointmentController {
     }
 
     // --- ATUALIZAR STATUS (CONFIRMAR, CANCELAR, CONCLUIR) ---
-    // 👇 É AQUI QUE O APP BATE QUANDO CLICA EM "CONFIRMAR"
-    @PutMapping("/{id}/status")
-    @Operation(summary = "Atualizar status do agendamento")
+    // 👇 AGORA ACEITA TANTO PUT QUANTO PATCH SEM DAR ERRO!
+    @org.springframework.web.bind.annotation.RequestMapping(
+            value = "/{id}/status",
+            method = {
+                    org.springframework.web.bind.annotation.RequestMethod.PUT,
+                    org.springframework.web.bind.annotation.RequestMethod.PATCH
+            }
+    )
+    @io.swagger.v3.oas.annotations.Operation(summary = "Atualizar status do agendamento")
     public ResponseEntity<AppointmentResponse> updateAppointmentStatus(
             @PathVariable String id,
-            @Valid @RequestBody AppointmentStatusRequest request) {
+            @jakarta.validation.Valid @RequestBody AppointmentStatusRequest request) {
 
         String companyId = SecurityUtils.getCurrentCompanyId();
         return ResponseEntity.ok(appointmentService.updateAppointmentStatus(companyId, id, request));

@@ -147,7 +147,11 @@ public class AppointmentService {
         try { newStatus = AppointmentStatus.valueOf(request.getStatus().toString()); }
         catch (Exception e) { throw new BusinessException("Status inválido: " + request.getStatus()); }
 
-        if (appointment.getStatus() == newStatus && appointment.getIsPaid().equals(request.getIsPaid())) {
+        // 👇 PROTEÇÃO CONTRA NULL POINTER (Garante que nunca vai quebrar se vier vazio) 👇
+        Boolean currentIsPaid = appointment.getIsPaid() != null ? appointment.getIsPaid() : true;
+        Boolean requestIsPaid = request.getIsPaid() != null ? request.getIsPaid() : true;
+
+        if (appointment.getStatus() == newStatus && currentIsPaid.equals(requestIsPaid)) {
             return buildResponse(appointment);
         }
 
@@ -161,7 +165,8 @@ public class AppointmentService {
         // SE O CORTE FOI CONCLUÍDO, VAMOS PROCESSAR O DINHEIRO!
         if (newStatus == AppointmentStatus.COMPLETED) {
 
-            if (appointment.getIsPaid()) {
+            // Usa a variável protegida para evitar erro
+            if (appointment.getIsPaid() != null && appointment.getIsPaid()) {
                 // 👇 CÁLCULO DE LUCRO REAL (Com taxa de maquininha) 👇
                 processFinancialSplit(appointment, request.getPaymentMethod(), request.getMachineFeePercentage());
             } else {
