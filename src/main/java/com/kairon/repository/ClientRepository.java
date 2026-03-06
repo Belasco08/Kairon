@@ -99,10 +99,11 @@ public interface ClientRepository extends JpaRepository<Client, String> {
             Pageable pageable);
 
 
-    // 👇 BUSCA CLIENTES QUE SUMIRAM HÁ X DIAS E NÃO TÊM AGENDAMENTO FUTURO
+    // 👇 MÁQUINA DE RETENÇÃO: OTIMIZADA E COMPATÍVEL COM HIBERNATE 6 👇
     @org.springframework.data.jpa.repository.Query("SELECT c FROM Client c WHERE c.company.id = :companyId AND c.active = true AND " +
-            "(SELECT MAX(a.startTime) FROM Appointment a WHERE a.client = c AND a.status = 'COMPLETED') < :cutoffDate AND " +
-            "(SELECT COUNT(a) FROM Appointment a WHERE a.client = c AND a.startTime >= CURRENT_TIMESTAMP AND a.status IN ('PENDING', 'CONFIRMED')) = 0")
+            "NOT EXISTS (SELECT a.id FROM Appointment a WHERE a.client = c AND a.status = 'COMPLETED' AND a.startTime >= :cutoffDate) AND " +
+            "NOT EXISTS (SELECT a.id FROM Appointment a WHERE a.client = c AND a.status IN ('PENDING', 'CONFIRMED') AND a.startTime >= CURRENT_TIMESTAMP) AND " +
+            "EXISTS (SELECT a.id FROM Appointment a WHERE a.client = c AND a.status = 'COMPLETED')")
     java.util.List<Client> findClientsForRetention(@org.springframework.data.repository.query.Param("companyId") String companyId,
                                                    @org.springframework.data.repository.query.Param("cutoffDate") java.time.LocalDateTime cutoffDate);
 }
