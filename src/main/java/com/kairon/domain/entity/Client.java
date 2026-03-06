@@ -7,7 +7,7 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-import java.math.BigDecimal; // 👈 NOVO IMPORT
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -29,7 +29,7 @@ public class Client {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @EqualsAndHashCode.Include // O hash do objeto será baseado APENAS no ID
+    @EqualsAndHashCode.Include
     private String id;
 
     @Column(nullable = false, length = 100)
@@ -47,10 +47,15 @@ public class Client {
     @Column(length = 1000)
     private String notes;
 
-    // 👇 NOVA COLUNA: MOTOR DA CONTA DO CLIENTE (FIADO)
+    // MOTOR DA CONTA DO CLIENTE (FIADO)
     @Builder.Default
     @Column(name = "debt_balance", precision = 10, scale = 2)
     private BigDecimal debtBalance = BigDecimal.ZERO;
+
+    // 👇 MOTOR DO PROGRAMA DE FIDELIDADE (O MATADOR DE CONCORRÊNCIA) 👇
+    @Builder.Default
+    @Column(name = "fidelity_stamps", nullable = false)
+    private Integer fidelityStamps = 0;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id", nullable = false)

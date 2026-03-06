@@ -102,4 +102,13 @@ public class ClientController {
 
         return ResponseEntity.ok(clientService.getMissingClients(companyId, professionalId, daysAway, pageable));
     }
+
+    // 👇 ROTA PARA O BOTÃO "RESGATAR PRÊMIO" DO APP 👇
+    @PostMapping("/{id}/fidelity/redeem")
+    @io.swagger.v3.oas.annotations.Operation(summary = "Resgatar prêmio de fidelidade do cliente")
+    public ResponseEntity<Void> redeemFidelityReward(@PathVariable String id) {
+        String companyId = SecurityUtils.getCurrentCompanyId();
+        clientService.redeemFidelityReward(companyId, id);
+        return ResponseEntity.ok().build();
+    }
 }

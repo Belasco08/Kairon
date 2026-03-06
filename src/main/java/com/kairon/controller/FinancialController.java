@@ -179,7 +179,8 @@ public class FinancialController {
     }
 
     @PostMapping("/records")
-    public ResponseEntity<FinancialResponse> createRecord(@RequestBody @Valid FinancialRequest request) {
+    @Operation(summary = "Criar um novo lançamento financeiro (Receita/Despesa)")
+    public ResponseEntity<FinancialResponse> createRecord(@RequestBody @jakarta.validation.Valid FinancialRequest request) {
         String companyId = SecurityUtils.getCurrentCompanyId();
         return ResponseEntity.ok(financialService.createFinancialRecord(companyId, request));
     }

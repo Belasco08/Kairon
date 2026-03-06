@@ -162,19 +162,33 @@ public class AppointmentService {
             appointment.setIsPaid(request.getIsPaid());
         }
 
-        // SE O CORTE FOI CONCLUÍDO, VAMOS PROCESSAR O DINHEIRO!
+        // SE O CORTE FOI CONCLUÍDO, VAMOS PROCESSAR O DINHEIRO E A FIDELIDADE!
         if (newStatus == AppointmentStatus.COMPLETED) {
 
+            Client client = appointment.getClient();
+
+            // 👇 1. MÁGICA DA FIDELIZAÇÃO: SOMA +1 SELO AUTOMATICAMENTE 👇
+            if (client != null) {
+                int currentStamps = client.getFidelityStamps() != null ? client.getFidelityStamps() : 0;
+                client.setFidelityStamps(currentStamps + 1);
+
+                // Nota: Por enquanto estamos acumulando infinitamente.
+                // Se o dono quiser dar 1 corte grátis a cada 10, a gente avisa no App!
+                clientRepository.save(client);
+            }
+
+            // 👇 2. PROCESSA O DINHEIRO 👇
             // Usa a variável protegida para evitar erro
             if (appointment.getIsPaid() != null && appointment.getIsPaid()) {
-                // 👇 CÁLCULO DE LUCRO REAL (Com taxa de maquininha) 👇
+                // CÁLCULO DE LUCRO REAL (Com taxa de maquininha)
                 processFinancialSplit(appointment, request.getPaymentMethod(), request.getMachineFeePercentage());
             } else {
                 // Cenário 2: FIADO!
-                Client client = appointment.getClient();
-                BigDecimal currentDebt = client.getDebtBalance() != null ? client.getDebtBalance() : BigDecimal.ZERO;
-                client.setDebtBalance(currentDebt.add(appointment.getTotalPrice()));
-                clientRepository.save(client);
+                if (client != null) {
+                    BigDecimal currentDebt = client.getDebtBalance() != null ? client.getDebtBalance() : BigDecimal.ZERO;
+                    client.setDebtBalance(currentDebt.add(appointment.getTotalPrice()));
+                    clientRepository.save(client);
+                }
             }
         }
 

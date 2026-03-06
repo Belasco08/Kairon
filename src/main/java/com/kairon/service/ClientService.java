@@ -222,4 +222,21 @@ public class ClientService {
                 .filter(a -> a.getStatus() == AppointmentStatus.COMPLETED)
                 .toList();
     }
+
+    // 👇 MÁGICA DO RESGATE DE FIDELIDADE 👇
+    @org.springframework.transaction.annotation.Transactional
+    public void redeemFidelityReward(String companyId, String clientId) {
+        Client client = clientRepository.findByIdAndCompanyId(clientId, companyId)
+                .orElseThrow(() -> new BusinessException("Cliente não encontrado"));
+
+        int currentStamps = client.getFidelityStamps() != null ? client.getFidelityStamps() : 0;
+
+        if (currentStamps < 10) {
+            throw new BusinessException("O cliente ainda não possui selos suficientes para o resgate.");
+        }
+
+        // Subtrai 10 selos (se ele tiver 11, sobra 1 para a próxima rodada)
+        client.setFidelityStamps(currentStamps - 10);
+        clientRepository.save(client);
+    }
 }
