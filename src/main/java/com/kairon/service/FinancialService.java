@@ -610,7 +610,7 @@ public class FinancialService {
         return getDashboard(companyId, new DashboardRequest()).getDailyEvolution();
     }
 
-    @Transactional
+    @org.springframework.transaction.annotation.Transactional
     public void payRecord(String companyId, String recordId) {
         // Busca a conta a pagar
         FinancialRecord record = financialRecordRepository.findByIdAndCompanyId(recordId, companyId)

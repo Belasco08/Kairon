@@ -32,6 +32,9 @@ public class ProfessionalResponse {
 
     private String email;
 
+    private Double pendingCommission;
+    private Integer totalAppointments;
+
 
 
     @Data

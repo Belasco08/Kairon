@@ -157,4 +157,8 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
             @Param("status") AppointmentStatus status
     );
 
+
+    // 👇 NOVA BUSCA PARA A MÁQUINA DE AVALIAÇÕES
+    List<Appointment> findTop20ByCompanyIdAndStatusOrderByStartTimeDesc(String companyId, com.kairon.domain.enums.AppointmentStatus status);
+
 }

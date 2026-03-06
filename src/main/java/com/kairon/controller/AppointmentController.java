@@ -114,4 +114,12 @@ public class AppointmentController {
 
         return ResponseEntity.ok(history);
     }
+
+    // 👇 ROTA DA MÁQUINA DE AVALIAÇÕES
+    @GetMapping("/completed-for-review")
+    @io.swagger.v3.oas.annotations.Operation(summary = "Buscar últimos cortes concluídos para pedir avaliação no Google")
+    public ResponseEntity<List<AppointmentResponse>> getCompletedForReview() {
+        String companyId = SecurityUtils.getCurrentCompanyId();
+        return ResponseEntity.ok(appointmentService.getCompletedForReview(companyId));
+    }
 }

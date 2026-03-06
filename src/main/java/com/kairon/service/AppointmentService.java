@@ -165,9 +165,14 @@ public class AppointmentService {
         // SE O CORTE FOI CONCLUÍDO, VAMOS PROCESSAR O DINHEIRO E A FIDELIDADE!
         if (newStatus == AppointmentStatus.COMPLETED) {
 
+            // 👇 1. SALVANDO O MÉTODO DE PAGAMENTO NO AGENDAMENTO 👇
+            if (request.getPaymentMethod() != null) {
+                appointment.setPaymentMethod(request.getPaymentMethod());
+            }
+
             Client client = appointment.getClient();
 
-            // 👇 1. MÁGICA DA FIDELIZAÇÃO: SOMA +1 SELO AUTOMATICAMENTE 👇
+            // 👇 2. MÁGICA DA FIDELIZAÇÃO: SOMA +1 SELO AUTOMATICAMENTE 👇
             if (client != null) {
                 int currentStamps = client.getFidelityStamps() != null ? client.getFidelityStamps() : 0;
                 client.setFidelityStamps(currentStamps + 1);
@@ -177,7 +182,7 @@ public class AppointmentService {
                 clientRepository.save(client);
             }
 
-            // 👇 2. PROCESSA O DINHEIRO 👇
+            // 👇 3. PROCESSA O DINHEIRO 👇
             // Usa a variável protegida para evitar erro
             if (appointment.getIsPaid() != null && appointment.getIsPaid()) {
                 // CÁLCULO DE LUCRO REAL (Com taxa de maquininha)
@@ -417,5 +422,20 @@ public class AppointmentService {
                 .lastServiceName(lastServiceName) // 👈 Adicionado
                 .lastServiceDate(lastServiceDate) // 👈 Adicionado
                 .build();
+    }
+
+
+    // ===================================================================================
+    // MÁQUINA DE AVALIAÇÕES (GOOGLE MAPS)
+    // ===================================================================================
+    public List<AppointmentResponse> getCompletedForReview(String companyId) {
+        // Busca os últimos 20 cortes concluídos da barbearia
+        List<Appointment> appointments = appointmentRepository
+                .findTop20ByCompanyIdAndStatusOrderByStartTimeDesc(companyId, AppointmentStatus.COMPLETED);
+
+        // Transforma na resposta pro aplicativo
+        return appointments.stream()
+                .map(this::buildResponse) // Usa o mesmo mapeador que você já tem
+                .collect(Collectors.toList());
     }
 }

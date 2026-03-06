@@ -100,4 +100,8 @@ public class Appointment {
     @LastModifiedDate
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+
+    @Column(name = "payment_method")
+    private String paymentMethod;
 }

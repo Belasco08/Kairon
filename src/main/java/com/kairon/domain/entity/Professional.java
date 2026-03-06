@@ -90,4 +90,13 @@ public class Professional {
     private LocalDateTime updatedAt;
 
 
+
+    // 👇 MOTOR DE COMISSÕES 👇
+    @Builder.Default
+    @Column(name = "pending_commission", precision = 10, scale = 2)
+    private BigDecimal pendingCommission = BigDecimal.ZERO;
+
+    @Builder.Default
+    @Column(name = "total_appointments")
+    private Integer totalAppointments = 0;
 }

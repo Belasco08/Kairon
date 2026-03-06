@@ -20,4 +20,6 @@ public class AppointmentStatusRequest {
     // 👇 ADICIONE ESTES DOIS CAMPOS 👇
     private String paymentMethod;
     private java.math.BigDecimal machineFeePercentage;
+
+
 }

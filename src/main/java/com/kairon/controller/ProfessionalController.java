@@ -122,4 +122,12 @@ public class ProfessionalController {
                 professionalService.getProfessionalWithServices(companyId, id)
         );
     }
+
+    @PostMapping("/{id}/pay-commissions")
+    @io.swagger.v3.oas.annotations.Operation(summary = "Zerar comissão e registrar pagamento no fluxo de caixa")
+    public ResponseEntity<Void> payCommissions(@PathVariable String id) {
+        String companyId = SecurityUtils.getCurrentCompanyId();
+        professionalService.payCommission(companyId, id);
+        return ResponseEntity.ok().build();
+    }
 }

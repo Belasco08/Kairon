@@ -6,6 +6,8 @@ import com.kairon.domain.entity.Company;
 import com.kairon.domain.entity.Professional;
 import com.kairon.domain.entity.Services;
 import com.kairon.domain.entity.User;
+import com.kairon.domain.entity.FinancialRecord; // 👈 NOVO
+import com.kairon.domain.enums.FinancialType; // 👈 NOVO
 import com.kairon.domain.enums.PlanType;
 import com.kairon.domain.enums.Role;
 import com.kairon.dto.request.AssignUserToProfessionalRequest;
@@ -19,6 +21,7 @@ import com.kairon.repository.CompanyRepository;
 import com.kairon.repository.ProfessionalRepository;
 import com.kairon.repository.ServiceRepository;
 import com.kairon.repository.UserRepository;
+import com.kairon.repository.FinancialRecordRepository; // 👈 NOVO
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -28,6 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime; // 👈 NOVO
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -41,6 +45,7 @@ public class ProfessionalService {
     private final CompanyRepository companyRepository;
     private final UserRepository userRepository;
     private final ServiceRepository serviceRepository;
+    private final FinancialRecordRepository financialRecordRepository; // 👈 INJETADO PARA O CAIXA
     private final ObjectMapper objectMapper;
     private final PasswordEncoder passwordEncoder;
     private final PlanGuard planGuard;
@@ -91,12 +96,14 @@ public class ProfessionalService {
         Professional professional = Professional.builder()
                 .name(request.getName())
                 .phone(request.getPhone())
-                .email(request.getEmail()) // Agora mapeado corretamente
+                .email(request.getEmail())
                 .description(request.getDescription())
                 .photoUrl(request.getPhotoUrl())
                 .company(company)
                 .isActive(true)
                 .user(newUser)
+                .pendingCommission(BigDecimal.ZERO) // 👇 COMEÇA ZERADO
+                .totalAppointments(0) // 👇 COMEÇA ZERADO
                 .commissionPercentage(
                         request.getCommissionPercentage() != null
                                 ? BigDecimal.valueOf(request.getCommissionPercentage())
@@ -130,7 +137,6 @@ public class ProfessionalService {
 
         // --- 1. VALIDAÇÃO E ATUALIZAÇÃO DE TELEFONE ---
         if (request.getPhone() != null && !request.getPhone().equals(professional.getPhone())) {
-            // Verifica se outro profissional NA MESMA EMPRESA já usa esse telefone
             boolean exists = professionalRepository.findByCompanyId(companyId).stream()
                     .anyMatch(p -> !p.getId().equals(professionalId) && request.getPhone().equals(p.getPhone()));
 
@@ -140,9 +146,7 @@ public class ProfessionalService {
         }
 
         // --- 2. VALIDAÇÃO E ATUALIZAÇÃO DE EMAIL (LOGIN) ---
-        // Se o email foi enviado E ele é diferente do atual
         if (request.getEmail() != null && !request.getEmail().equals(professional.getEmail())) {
-            // Verifica se o email já existe em QUALQUER usuário do sistema
             if (userRepository.findByEmail(request.getEmail()).isPresent()) {
                 throw new BusinessException("Este e-mail já está em uso por outro usuário.");
             }
@@ -171,36 +175,26 @@ public class ProfessionalService {
         }
 
         // --- 4. SINCRONIZAÇÃO COM USUÁRIO (CRÍTICO) ---
-        // Atualiza a tabela Users para garantir que o Login continue funcionando
         if (professional.getUser() != null) {
             User linkedUser = professional.getUser();
             boolean userChanged = false;
 
-            // Sincroniza Nome
             if (request.getName() != null && !request.getName().equals(linkedUser.getName())) {
                 linkedUser.setName(request.getName());
                 userChanged = true;
             }
-
-            // Sincroniza Email (já validado acima)
             if (request.getEmail() != null && !request.getEmail().equals(linkedUser.getEmail())) {
                 linkedUser.setEmail(request.getEmail());
                 userChanged = true;
             }
-
-            // Sincroniza Telefone
             if (request.getPhone() != null && !request.getPhone().equals(linkedUser.getPhone())) {
                 linkedUser.setPhone(request.getPhone());
                 userChanged = true;
             }
-
-            // Sincroniza Status
             if (request.getIsActive() != null && request.getIsActive() != linkedUser.isActive()) {
                 linkedUser.setActive(request.getIsActive());
                 userChanged = true;
             }
-
-            // Sincroniza Senha
             if (request.getPassword() != null && !request.getPassword().isEmpty()) {
                 linkedUser.setPassword(passwordEncoder.encode(request.getPassword()));
                 userChanged = true;
@@ -212,7 +206,6 @@ public class ProfessionalService {
             }
         }
 
-        // Salva o Profissional
         professional = professionalRepository.save(professional);
         log.info("Professional updated successfully: {}", professionalId);
 
@@ -220,8 +213,8 @@ public class ProfessionalService {
     }
 
     // ===================================================================================
-// 3. DELETE (Soft Delete / Exclusão Lógica)
-// ===================================================================================
+    // 3. DELETE (Soft Delete / Exclusão Lógica)
+    // ===================================================================================
     @Transactional
     public void deleteProfessional(String companyId, String professionalId) {
         log.info("Iniciando Soft Delete para o profissional: {} da empresa: {}", professionalId, companyId);
@@ -230,19 +223,13 @@ public class ProfessionalService {
                 .findByIdAndCompanyId(professionalId, companyId)
                 .orElseThrow(() -> new BusinessException("Profissional não encontrado"));
 
-        // 1. Em vez de deletar ou barrar, nós apenas INATIVAMOS o profissional.
-        // Isso faz ele sumir do aplicativo (se as suas buscas filtrarem por ativos),
-        // mas mantém o histórico financeiro e os agendamentos antigos intactos!
         professional.setActive(false);
 
-        // 2. Desativa o acesso do Usuário (para ele não conseguir mais fazer login no Kairon)
         if (professional.getUser() != null) {
             User user = professional.getUser();
             user.setActive(false);
-            // Nota: Assumindo que sua entidade User tem o método setIsActive().
         }
 
-        // 3. Salva a alteração
         professionalRepository.save(professional);
 
         log.info("Profissional inativado (Soft Delete) com sucesso: {}", professionalId);
@@ -251,7 +238,6 @@ public class ProfessionalService {
     // ===================================================================================
     // 4. READ (GETs)
     // ===================================================================================
-
     public ProfessionalResponse getProfessional(String companyId, String professionalId) {
         Professional professional = professionalRepository
                 .findByIdAndCompanyId(professionalId, companyId)
@@ -270,9 +256,8 @@ public class ProfessionalService {
     }
 
     // ===================================================================================
-    // 5. SERVICES & RELATIONS (Métodos que faltavam)
+    // 5. SERVICES & RELATIONS
     // ===================================================================================
-
     @Transactional
     public ProfessionalResponse assignUserToProfessional(String companyId, String professionalId, AssignUserToProfessionalRequest request) {
         Professional professional = professionalRepository.findByIdAndCompanyId(professionalId, companyId)
@@ -354,9 +339,45 @@ public class ProfessionalService {
     }
 
     // ===================================================================================
-    // 6. MAPPERS
+    // 6. ACERTO DE COMISSÕES (A MÁGICA DO SÁBADO)
     // ===================================================================================
+    @Transactional
+    public void payCommission(String companyId, String professionalId) {
+        Professional professional = professionalRepository.findByIdAndCompanyId(professionalId, companyId)
+                .orElseThrow(() -> new BusinessException("Profissional não encontrado"));
 
+        BigDecimal pending = professional.getPendingCommission() != null ? professional.getPendingCommission() : BigDecimal.ZERO;
+
+        if (pending.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Não há comissões pendentes para este profissional.");
+        }
+
+        // 1. Gera o comprovante automático de "Despesa" no Fluxo de Caixa do App
+        FinancialRecord paymentRecord = FinancialRecord.builder()
+                .title("Pagamento de Equipe: " + professional.getName())
+                .description("Acerto de comissões.")
+                .amount(pending)
+                .type(FinancialType.EXPENSE) // Saiu do caixa do dono
+                .category("PAGAMENTO_EQUIPE")
+                .status("PAID")
+                .paymentMethod("CAIXA")
+                .referenceDate(LocalDateTime.now())
+                .company(professional.getCompany())
+                .professional(professional)
+                .build();
+
+        financialRecordRepository.save(paymentRecord);
+
+        // 2. Zera a conta corrente do barbeiro
+        professional.setPendingCommission(BigDecimal.ZERO);
+        professionalRepository.save(professional);
+
+        log.info("Comissões zeradas e pagas para o profissional: {}", professional.getName());
+    }
+
+    // ===================================================================================
+    // 7. MAPPERS
+    // ===================================================================================
     private ProfessionalResponse mapToResponse(Professional professional) {
         return ProfessionalResponse.builder()
                 .id(professional.getId())
@@ -374,6 +395,9 @@ public class ProfessionalService {
                                 ? professional.getCommissionPercentage().doubleValue()
                                 : 0.0
                 )
+                // 👇 ENVIANDO OS DADOS FINANCEIROS PRO APP
+                .totalAppointments(professional.getTotalAppointments() != null ? professional.getTotalAppointments() : 0)
+                .pendingCommission(professional.getPendingCommission() != null ? professional.getPendingCommission().doubleValue() : 0.0)
                 .createdAt(professional.getCreatedAt())
                 .updatedAt(professional.getUpdatedAt())
                 .build();

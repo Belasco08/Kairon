@@ -171,7 +171,9 @@ public class FinancialController {
         return ResponseEntity.ok(financialService.getExpensesChartData(companyId, request));
     }
 
-    @PatchMapping("/records/{id}/pay")
+    // 👇 Mudamos de @PatchMapping para @PostMapping
+    @PostMapping("/records/{id}/pay")
+    @io.swagger.v3.oas.annotations.Operation(summary = "Dar baixa em um registro financeiro")
     public ResponseEntity<Void> payRecord(@PathVariable String id) {
         String companyId = SecurityUtils.getCurrentCompanyId(); // Pega a empresa logada
         financialService.payRecord(companyId, id);
