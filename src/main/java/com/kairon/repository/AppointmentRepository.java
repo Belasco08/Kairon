@@ -55,12 +55,10 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
     //              VALIDAÇÕES (AGENDA)
     // ============================================
 
-    @Query("SELECT COUNT(a) > 0 FROM Appointment a " +
+    @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM Appointment a " +
             "WHERE a.professional.id = :professionalId " +
-            "AND a.status <> 'CANCELED' " +
-            "AND (" +
-            "   (a.startTime < :endTime AND a.endTime > :startTime)" +
-            ")")
+            "AND a.status <> com.kairon.domain.enums.AppointmentStatus.CANCELLED " +
+            "AND (a.startTime < :endTime AND a.endTime > :startTime)")
     boolean existsByProfessionalAndDateOverlap(
             @Param("professionalId") String professionalId,
             @Param("startTime") LocalDateTime startTime,
@@ -69,8 +67,9 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
 
     @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM Appointment a " +
             "WHERE a.professional.id = :professionalId " +
-            "AND a.id != :appointmentId " +
-            "AND a.status NOT IN ('CANCELLED', 'NO_SHOW') " +
+            "AND a.id <> :appointmentId " +
+            "AND a.status <> com.kairon.domain.enums.AppointmentStatus.CANCELLED " +
+            "AND a.status <> com.kairon.domain.enums.AppointmentStatus.NO_SHOW " +
             "AND (a.startTime < :endTime AND a.endTime > :startTime)")
     boolean existsByProfessionalAndDateOverlapAndIdNot(
             @Param("professionalId") String professionalId,
@@ -88,7 +87,7 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
             "WHERE a.company.id = :companyId " +
             "AND a.startTime >= :startOfDay " +
             "AND a.startTime <= :endOfDay " +
-            "AND a.status <> 'CANCELED' " +
+            "AND a.status <> com.kairon.domain.enums.AppointmentStatus.CANCELLED " +
             "ORDER BY a.startTime ASC")
     List<Appointment> findByCompanyAndDateRange(
             @Param("companyId") String companyId,
@@ -116,7 +115,7 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
 
     @Query("SELECT COUNT(a) FROM Appointment a " +
             "WHERE a.company.id = :companyId " +
-            "AND a.status = 'COMPLETED' " +
+            "AND a.status = com.kairon.domain.enums.AppointmentStatus.COMPLETED " +
             "AND a.startTime >= :start " +
             "AND a.startTime <= :end")
     Long countCompletedAppointments(
@@ -128,7 +127,7 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
     @Query("SELECT COUNT(a) FROM Appointment a " +
             "WHERE a.company.id = :companyId " +
             "AND a.professional.id = :professionalId " +
-            "AND a.status = 'COMPLETED' " +
+            "AND a.status = com.kairon.domain.enums.AppointmentStatus.COMPLETED " +
             "AND a.startTime >= :startDate " +
             "AND a.startTime <= :endDate")
     Long countCompletedAppointmentsByProfessional(
@@ -157,8 +156,7 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
             @Param("status") AppointmentStatus status
     );
 
-
     // 👇 NOVA BUSCA PARA A MÁQUINA DE AVALIAÇÕES
-    List<Appointment> findTop20ByCompanyIdAndStatusOrderByStartTimeDesc(String companyId, com.kairon.domain.enums.AppointmentStatus status);
+    List<Appointment> findTop20ByCompanyIdAndStatusOrderByStartTimeDesc(String companyId, AppointmentStatus status);
 
 }
