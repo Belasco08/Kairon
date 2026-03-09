@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -57,25 +58,38 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
 
     @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM Appointment a " +
             "WHERE a.professional.id = :professionalId " +
-            "AND cast(a.status as String) NOT IN ('CANCELED', 'CANCELLED') " +
+            "AND a.status <> :status " +
             "AND (a.startTime < :endTime AND a.endTime > :startTime)")
-    boolean existsByProfessionalAndDateOverlap(
-            @Param("professionalId") String professionalId,
-            @Param("startTime") LocalDateTime startTime,
-            @Param("endTime") LocalDateTime endTime
-    );
-
-    @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM Appointment a " +
-            "WHERE a.professional.id = :professionalId " +
-            "AND a.id != :appointmentId " +
-            "AND cast(a.status as String) NOT IN ('CANCELED', 'CANCELLED', 'NO_SHOW') " +
-            "AND (a.startTime < :endTime AND a.endTime > :startTime)")
-    boolean existsByProfessionalAndDateOverlapAndIdNot(
+    boolean existsByProfessionalAndDateOverlapInternal(
             @Param("professionalId") String professionalId,
             @Param("startTime") LocalDateTime startTime,
             @Param("endTime") LocalDateTime endTime,
-            @Param("appointmentId") String appointmentId
+            @Param("status") AppointmentStatus status
     );
+
+    default boolean existsByProfessionalAndDateOverlap(String professionalId, LocalDateTime startTime, LocalDateTime endTime) {
+        return existsByProfessionalAndDateOverlapInternal(professionalId, startTime, endTime, AppointmentStatus.CANCELLED);
+    }
+
+    @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM Appointment a " +
+            "WHERE a.professional.id = :professionalId " +
+            "AND a.id <> :appointmentId " +
+            "AND a.status NOT IN :statuses " +
+            "AND (a.startTime < :endTime AND a.endTime > :startTime)")
+    boolean existsByProfessionalAndDateOverlapAndIdNotInternal(
+            @Param("professionalId") String professionalId,
+            @Param("startTime") LocalDateTime startTime,
+            @Param("endTime") LocalDateTime endTime,
+            @Param("appointmentId") String appointmentId,
+            @Param("statuses") List<AppointmentStatus> statuses
+    );
+
+    default boolean existsByProfessionalAndDateOverlapAndIdNot(String professionalId, LocalDateTime startTime, LocalDateTime endTime, String appointmentId) {
+        return existsByProfessionalAndDateOverlapAndIdNotInternal(
+                professionalId, startTime, endTime, appointmentId,
+                Arrays.asList(AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW)
+        );
+    }
 
     // ============================================
     //              LISTAGEM (AGENDA VISUAL)
@@ -86,13 +100,18 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
             "WHERE a.company.id = :companyId " +
             "AND a.startTime >= :startOfDay " +
             "AND a.startTime <= :endOfDay " +
-            "AND cast(a.status as String) NOT IN ('CANCELED', 'CANCELLED') " +
+            "AND a.status <> :status " +
             "ORDER BY a.startTime ASC")
-    List<Appointment> findByCompanyAndDateRange(
+    List<Appointment> findByCompanyAndDateRangeInternal(
             @Param("companyId") String companyId,
             @Param("startOfDay") LocalDateTime startOfDay,
-            @Param("endOfDay") LocalDateTime endOfDay
+            @Param("endOfDay") LocalDateTime endOfDay,
+            @Param("status") AppointmentStatus status
     );
+
+    default List<Appointment> findByCompanyAndDateRange(String companyId, LocalDateTime startOfDay, LocalDateTime endOfDay) {
+        return findByCompanyAndDateRangeInternal(companyId, startOfDay, endOfDay, AppointmentStatus.CANCELLED);
+    }
 
     // 2. Agenda FILTRADA (Para o Profissional ou Filtro do Dono)
     @Query("SELECT a FROM Appointment a " +
@@ -114,27 +133,37 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
 
     @Query("SELECT COUNT(a) FROM Appointment a " +
             "WHERE a.company.id = :companyId " +
-            "AND cast(a.status as String) = 'COMPLETED' " +
+            "AND a.status = :status " +
             "AND a.startTime >= :start " +
             "AND a.startTime <= :end")
-    Long countCompletedAppointments(
+    Long countCompletedAppointmentsInternal(
             @Param("companyId") String companyId,
             @Param("start") LocalDateTime start,
-            @Param("end") LocalDateTime end
+            @Param("end") LocalDateTime end,
+            @Param("status") AppointmentStatus status
     );
+
+    default Long countCompletedAppointments(String companyId, LocalDateTime start, LocalDateTime end) {
+        return countCompletedAppointmentsInternal(companyId, start, end, AppointmentStatus.COMPLETED);
+    }
 
     @Query("SELECT COUNT(a) FROM Appointment a " +
             "WHERE a.company.id = :companyId " +
             "AND a.professional.id = :professionalId " +
-            "AND cast(a.status as String) = 'COMPLETED' " +
+            "AND a.status = :status " +
             "AND a.startTime >= :startDate " +
             "AND a.startTime <= :endDate")
-    Long countCompletedAppointmentsByProfessional(
+    Long countCompletedAppointmentsByProfessionalInternal(
             @Param("companyId") String companyId,
             @Param("professionalId") String professionalId,
             @Param("startDate") LocalDateTime startDate,
-            @Param("endDate") LocalDateTime endDate
+            @Param("endDate") LocalDateTime endDate,
+            @Param("status") AppointmentStatus status
     );
+
+    default Long countCompletedAppointmentsByProfessional(String companyId, String professionalId, LocalDateTime startDate, LocalDateTime endDate) {
+        return countCompletedAppointmentsByProfessionalInternal(companyId, professionalId, startDate, endDate, AppointmentStatus.COMPLETED);
+    }
 
     // =========================================================================
     // 👇 NOVAS QUERIES: GAMIFICAÇÃO DA EQUIPE (O "VIDEOGAME" DO PROFISSIONAL)
