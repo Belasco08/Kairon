@@ -38,7 +38,7 @@ public interface FinancialRecordRepository extends JpaRepository<FinancialRecord
     Optional<FinancialRecord> findByIdAndCompanyId(String id, String companyId);
 
     /* =========================
-       SOMAS (DASHBOARD)
+       SOMAS (DASHBOARD) - SOMENTE CONTAS 'PAID'
        ========================= */
 
     // 1. Soma Global (Para o Owner)
@@ -47,15 +47,21 @@ public interface FinancialRecordRepository extends JpaRepository<FinancialRecord
         FROM FinancialRecord fr
         WHERE fr.company.id = :companyId
           AND fr.type IN :types
+          AND fr.status = :status
           AND fr.referenceDate >= :startDate
           AND fr.referenceDate < :endDate
     """)
-    BigDecimal sumAmountByDateRange(
+    BigDecimal sumAmountByDateRangeInternal(
             @Param("companyId") String companyId,
             @Param("types") List<FinancialType> types,
             @Param("startDate") LocalDateTime startDate,
-            @Param("endDate") LocalDateTime endDate
+            @Param("endDate") LocalDateTime endDate,
+            @Param("status") String status
     );
+
+    default BigDecimal sumAmountByDateRange(String companyId, List<FinancialType> types, LocalDateTime startDate, LocalDateTime endDate) {
+        return sumAmountByDateRangeInternal(companyId, types, startDate, endDate, "PAID");
+    }
 
     // 2. Soma por Profissional (Para o Profissional)
     @Query("""
@@ -64,19 +70,25 @@ public interface FinancialRecordRepository extends JpaRepository<FinancialRecord
         WHERE fr.company.id = :companyId
           AND fr.professional.id = :professionalId
           AND fr.type IN :types
+          AND fr.status = :status
           AND fr.referenceDate >= :startDate
           AND fr.referenceDate < :endDate
     """)
-    BigDecimal sumAmountByProfessionalAndDateRange(
+    BigDecimal sumAmountByProfessionalAndDateRangeInternal(
             @Param("companyId") String companyId,
             @Param("professionalId") String professionalId,
             @Param("types") List<FinancialType> types,
             @Param("startDate") LocalDateTime startDate,
-            @Param("endDate") LocalDateTime endDate
+            @Param("endDate") LocalDateTime endDate,
+            @Param("status") String status
     );
 
+    default BigDecimal sumAmountByProfessionalAndDateRange(String companyId, String professionalId, List<FinancialType> types, LocalDateTime startDate, LocalDateTime endDate) {
+        return sumAmountByProfessionalAndDateRangeInternal(companyId, professionalId, types, startDate, endDate, "PAID");
+    }
+
     /* =========================
-       GRÁFICOS (DASHBOARD)
+       GRÁFICOS (DASHBOARD) - SOMENTE CONTAS 'PAID'
        ========================= */
 
     // 1. Gráfico Global (Owner)
@@ -84,59 +96,73 @@ public interface FinancialRecordRepository extends JpaRepository<FinancialRecord
         SELECT
             DATE(fr.referenceDate),
             COALESCE(SUM(fr.amount), 0),
-            COUNT(DISTINCT fr.appointment.id)
+            COUNT(DISTINCT fr.id)
         FROM FinancialRecord fr
         WHERE fr.company.id = :companyId
           AND fr.referenceDate >= :startDate
           AND fr.referenceDate < :endDate
           AND fr.type IN :types
+          AND fr.status = :status
         GROUP BY DATE(fr.referenceDate)
         ORDER BY DATE(fr.referenceDate)
     """)
-    List<Object[]> findDailyRevenue(
+    List<Object[]> findDailyRevenueInternal(
             @Param("companyId") String companyId,
             @Param("types") List<FinancialType> types,
             @Param("startDate") LocalDateTime startDate,
-            @Param("endDate") LocalDateTime endDate
+            @Param("endDate") LocalDateTime endDate,
+            @Param("status") String status
     );
+
+    default List<Object[]> findDailyRevenue(String companyId, List<FinancialType> types, LocalDateTime startDate, LocalDateTime endDate) {
+        return findDailyRevenueInternal(companyId, types, startDate, endDate, "PAID");
+    }
 
     // 2. Gráfico Filtrado (Profissional)
     @Query("""
         SELECT
             DATE(fr.referenceDate),
             COALESCE(SUM(fr.amount), 0),
-            COUNT(DISTINCT fr.appointment.id)
+            COUNT(DISTINCT fr.id)
         FROM FinancialRecord fr
         WHERE fr.company.id = :companyId
           AND fr.professional.id = :professionalId 
           AND fr.referenceDate >= :startDate
           AND fr.referenceDate < :endDate
           AND fr.type IN :types
+          AND fr.status = :status
         GROUP BY DATE(fr.referenceDate)
         ORDER BY DATE(fr.referenceDate)
     """)
-    List<Object[]> findDailyRevenueByProfessional(
+    List<Object[]> findDailyRevenueByProfessionalInternal(
             @Param("companyId") String companyId,
             @Param("professionalId") String professionalId,
             @Param("types") List<FinancialType> types,
             @Param("startDate") LocalDateTime startDate,
-            @Param("endDate") LocalDateTime endDate
+            @Param("endDate") LocalDateTime endDate,
+            @Param("status") String status
     );
 
-    // ... outros métodos ...
+    default List<Object[]> findDailyRevenueByProfessional(String companyId, String professionalId, List<FinancialType> types, LocalDateTime startDate, LocalDateTime endDate) {
+        return findDailyRevenueByProfessionalInternal(companyId, professionalId, types, startDate, endDate, "PAID");
+    }
 
     // SOMA DESPESAS POR CATEGORIA
     @Query("SELECT new com.kairon.dto.response.CategorySumResponse(r.category, SUM(r.amount)) " +
             "FROM FinancialRecord r " +
             "WHERE r.company.id = :companyId " +
             "AND r.type = 'EXPENSE' " +
+            "AND r.status = :status " +
             "AND r.referenceDate BETWEEN :start AND :end " +
             "GROUP BY r.category")
-    List<CategorySumResponse> sumExpensesByCategory(
+    List<CategorySumResponse> sumExpensesByCategoryInternal(
             @Param("companyId") String companyId,
             @Param("start") LocalDateTime start,
-            @Param("end") LocalDateTime end
+            @Param("end") LocalDateTime end,
+            @Param("status") String status
     );
 
-
+    default List<CategorySumResponse> sumExpensesByCategory(String companyId, LocalDateTime start, LocalDateTime end) {
+        return sumExpensesByCategoryInternal(companyId, start, end, "PAID");
+    }
 }
