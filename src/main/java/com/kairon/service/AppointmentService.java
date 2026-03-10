@@ -123,7 +123,7 @@ public class AppointmentService {
     }
 
 
-    // 👇 ADICIONE ESSA LINHA PARA MANTER A SESSÃO ABERTA PARA LER OS SERVIÇOS
+    // 👇 MANTÉM A SESSÃO ABERTA PARA LER OS SERVIÇOS
     @Transactional(readOnly = true)
     public List<AppointmentResponse> getAppointmentsByClient(String companyId, String clientId) {
         return appointmentRepository.findByCompanyIdAndClientId(companyId, clientId).stream().map(this::buildResponse).toList();
@@ -136,7 +136,7 @@ public class AppointmentService {
 
 
 
-    /* ================= UPDATE ================= */
+    /* ================= UPDATE E MOTOR DE PAGAMENTOS ================= */
 
     @Transactional
     public AppointmentResponse updateAppointmentStatus(String companyId, String appointmentId, AppointmentStatusRequest request) {
@@ -157,7 +157,7 @@ public class AppointmentService {
         appointment.setStatus(newStatus);
         if (request.getReason() != null) appointment.setCancellationReason(request.getReason());
 
-        // SE O CORTE FOI CONCLUÍDO, VAMOS PROCESSAR O DINHEIRO E A FIDELIDADE!
+        // SE O CORTE FOI CONCLUÍDO, VAMOS PROCESSAR O DINHEIRO, FIDELIDADE E PACOTES!
         if (newStatus == AppointmentStatus.COMPLETED) {
 
             // 👇 1. SALVANDO O MÉTODO DE PAGAMENTO NO AGENDAMENTO 👇
@@ -170,22 +170,48 @@ public class AppointmentService {
             } else if (request.getIsPaid() != null) {
                 appointment.setIsPaid(request.getIsPaid());
             } else {
-                appointment.setIsPaid(true); // Se pagou no Pix/Dinheiro/Cartão, tá pago.
+                appointment.setIsPaid(true); // Se pagou no Pix/Dinheiro/Cartão/Pacote, tá pago.
             }
 
             Client client = appointment.getClient();
 
-            // 👇 2. MÁGICA DA FIDELIZAÇÃO: SOMA +1 SELO AUTOMATICAMENTE 👇
             if (client != null) {
+                // 👇 2. MÁGICA DA FIDELIZAÇÃO: SOMA +1 SELO AUTOMATICAMENTE 👇
                 int currentStamps = client.getFidelityStamps() != null ? client.getFidelityStamps() : 0;
                 client.setFidelityStamps(currentStamps + 1);
+
+                // 👇 3. MOTOR DE PACOTES/COMBOS: DESCONTA 1 CRÉDITO SE FOR O CASO 👇
+                if (paymentMethod.equals("PACOTE") || paymentMethod.equals("COMBO")) {
+                    int currentCredits = client.getPackageCredits() != null ? client.getPackageCredits() : 0;
+
+                    if (currentCredits <= 0) {
+                        throw new BusinessException("Este cliente não tem créditos de pacote suficientes.");
+                    }
+
+                    // Desconta 1 crédito do cliente
+                    client.setPackageCredits(currentCredits - 1);
+
+                    // Se os créditos acabaram, limpa o nome do pacote para evitar confusão no futuro
+                    if (currentCredits - 1 == 0) {
+                        client.setPackageName(null);
+                    }
+                }
+
                 clientRepository.save(client);
             }
 
-            // 👇 3. PROCESSA O DINHEIRO (OU A DÍVIDA) 👇
+            // 👇 4. PROCESSA O DINHEIRO (OU A DÍVIDA) 👇
             if (appointment.getIsPaid()) {
-                // Cenário 1: Pagou normal! Lança no caixa.
-                processFinancialSplit(appointment, paymentMethod, request.getMachineFeePercentage());
+
+                // Se foi pacote, já foi pago antes! Não lança entrada nova no caixa pra não duplicar o faturamento.
+                if (paymentMethod.equals("PACOTE") || paymentMethod.equals("COMBO")) {
+                    // Apenas processa a comissão do barbeiro (pois o pacote não dá dinheiro hoje, mas o barbeiro trabalhou hoje)
+                    processCommissionOnly(appointment);
+                } else {
+                    // Cenário 1: Pagou normal (Dinheiro/Pix/Cartão)! Lança no caixa e gera comissão.
+                    processFinancialSplit(appointment, paymentMethod, request.getMachineFeePercentage());
+                }
+
             } else {
                 // Cenário 2: FIADO!
                 if (client != null) {
@@ -231,7 +257,7 @@ public class AppointmentService {
         return buildResponse(appointment);
     }
 
-    // 👇 ADICIONADO: Método Genérico para Atualizar Data e Serviços juntos
+    // 👇 Método Genérico para Atualizar Data e Serviços juntos
     @Transactional
     public AppointmentResponse updateAppointment(String companyId, String appointmentId, AppointmentUpdateRequest request) {
         Appointment appointment = appointmentRepository.findByIdAndCompanyId(appointmentId, companyId)
@@ -256,7 +282,7 @@ public class AppointmentService {
 
             appointment.setTotalPrice(totalPrice);
 
-            // 👇 CORREÇÃO: Usando Collectors.toSet() para compatibilidade com a Entidade Appointment
+            // Usando Collectors.toSet() para compatibilidade com a Entidade Appointment
             Set<AppointmentItem> newItems = services.stream().map(s -> AppointmentItem.builder()
                     .id(UUID.randomUUID().toString())
                     .appointment(appointment)
@@ -380,6 +406,45 @@ public class AppointmentService {
         }
     }
 
+    // 👇 NOVO MÉTODO PARA PACOTES: Só calcula a comissão, não registra entrada nova no caixa. 👇
+    private void processCommissionOnly(Appointment appointment) {
+        Company company = appointment.getCompany();
+        Professional prof = appointment.getProfessional();
+
+        if (company.getPlan() == PlanType.FREE) {
+            return;
+        }
+
+        String serviceTitle = "Serviço Agendado (Uso de Pacote)";
+        if (appointment.getAppointmentServices() != null && !appointment.getAppointmentServices().isEmpty()) {
+            serviceTitle = appointment.getAppointmentServices().iterator().next().getService().getName() + " (Uso de Pacote)";
+        }
+
+        BigDecimal commissionRate = prof.getCommissionPercentage() != null ? prof.getCommissionPercentage() : new BigDecimal("50.00");
+        BigDecimal totalAmount = appointment.getTotalPrice();
+
+        if (commissionRate.compareTo(BigDecimal.ZERO) > 0 && totalAmount.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal commissionAmount = totalAmount.multiply(commissionRate).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+
+            FinancialRecord commissionRecord = FinancialRecord.builder()
+                    .type(FinancialType.EXPENSE)
+                    .amount(commissionAmount)
+                    .title("Comissão Pacote: " + prof.getName())
+                    .description("Referente ao serviço " + serviceTitle)
+                    .category("COMISSAO")
+                    .appointment(appointment)
+                    .company(company)
+                    .professional(prof)
+                    .paymentMethod("INTERNO")
+                    .status("PENDING") // A comissão do barbeiro fica pendente pro dono pagar depois
+                    .referenceDate(LocalDateTime.now())
+                    .createdAt(LocalDateTime.now())
+                    .build();
+
+            financialRecordRepository.save(commissionRecord);
+        }
+    }
+
     /* ================= HELPERS ================= */
 
     private Client createClient(String companyId, AppointmentRequest request) {
@@ -397,27 +462,25 @@ public class AppointmentService {
                 ? appointment.getAppointmentServices().stream().map(i -> AppointmentServiceResponse.builder()
                 .id(i.getService().getId()).name(i.getService().getName()).price(i.getPrice().doubleValue()).duration(i.getDuration()).build()).toList() : List.of();
 
-        // 👇 LÓGICA DO HISTÓRICO: Busca a última visita do cliente
+        // LÓGICA DO HISTÓRICO: Busca a última visita do cliente
         String lastServiceName = null;
         String lastServiceDate = null;
 
         if (appointment.getClient() != null) {
-            // Pega todos os agendamentos anteriores a este (que já estão concluídos)
             List<Appointment> history = appointmentRepository.findByCompanyIdAndClientId(
                             appointment.getCompany().getId(),
                             appointment.getClient().getId()
                     ).stream()
                     .filter(a -> a.getStatus() == AppointmentStatus.COMPLETED)
                     .filter(a -> a.getStartTime().isBefore(appointment.getStartTime()))
-                    .sorted((a, b) -> b.getStartTime().compareTo(a.getStartTime())) // Ordena do mais recente pro mais antigo
+                    .sorted((a, b) -> b.getStartTime().compareTo(a.getStartTime()))
                     .toList();
 
             if (!history.isEmpty()) {
                 Appointment lastAppt = history.get(0);
-                lastServiceDate = lastAppt.getStartTime().toString(); // O Front-end usa o parseISO para formatar
+                lastServiceDate = lastAppt.getStartTime().toString();
 
                 if (lastAppt.getAppointmentServices() != null && !lastAppt.getAppointmentServices().isEmpty()) {
-                    // Pega o nome do primeiro serviço feito naquela data
                     lastServiceName = lastAppt.getAppointmentServices().iterator().next().getService().getName();
                 } else {
                     lastServiceName = "Serviço Padrão";
@@ -438,23 +501,20 @@ public class AppointmentService {
                 .professionalId(appointment.getProfessional() != null ? appointment.getProfessional().getId() : null)
                 .services(servicesList)
                 .serviceNames(servicesList.stream().map(AppointmentServiceResponse::getName).collect(Collectors.toList()))
-                .lastServiceName(lastServiceName) // 👈 Adicionado
-                .lastServiceDate(lastServiceDate) // 👈 Adicionado
+                .lastServiceName(lastServiceName)
+                .lastServiceDate(lastServiceDate)
                 .build();
     }
-
 
     // ===================================================================================
     // MÁQUINA DE AVALIAÇÕES (GOOGLE MAPS)
     // ===================================================================================
     public List<AppointmentResponse> getCompletedForReview(String companyId) {
-        // Busca os últimos 20 cortes concluídos da barbearia
         List<Appointment> appointments = appointmentRepository
                 .findTop20ByCompanyIdAndStatusOrderByStartTimeDesc(companyId, AppointmentStatus.COMPLETED);
 
-        // Transforma na resposta pro aplicativo
         return appointments.stream()
-                .map(this::buildResponse) // Usa o mesmo mapeador que você já tem
+                .map(this::buildResponse)
                 .collect(Collectors.toList());
     }
 }

@@ -52,10 +52,19 @@ public class Client {
     @Column(name = "debt_balance", precision = 10, scale = 2)
     private BigDecimal debtBalance = BigDecimal.ZERO;
 
-    // 👇 MOTOR DO PROGRAMA DE FIDELIDADE (O MATADOR DE CONCORRÊNCIA) 👇
+    // MOTOR DO PROGRAMA DE FIDELIDADE
     @Builder.Default
     @Column(name = "fidelity_stamps", nullable = false)
     private Integer fidelityStamps = 0;
+
+    // 👇 MOTOR DE PACOTES E COMBOS (CORTES PRÉ-PAGOS) 👇
+    @Builder.Default
+    @Column(name = "package_credits", nullable = false)
+    private Integer packageCredits = 0;
+
+    @Column(name = "package_name", length = 100)
+    private String packageName;
+    // 👆 ======================================================= 👆
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id", nullable = false)
