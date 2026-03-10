@@ -147,7 +147,6 @@ public class AppointmentService {
         try { newStatus = AppointmentStatus.valueOf(request.getStatus().toString()); }
         catch (Exception e) { throw new BusinessException("Status inválido: " + request.getStatus()); }
 
-        // 👇 PROTEÇÃO CONTRA NULL POINTER (Garante que nunca vai quebrar se vier vazio) 👇
         Boolean currentIsPaid = appointment.getIsPaid() != null ? appointment.getIsPaid() : true;
         Boolean requestIsPaid = request.getIsPaid() != null ? request.getIsPaid() : true;
 
@@ -158,16 +157,20 @@ public class AppointmentService {
         appointment.setStatus(newStatus);
         if (request.getReason() != null) appointment.setCancellationReason(request.getReason());
 
-        if (request.getIsPaid() != null) {
-            appointment.setIsPaid(request.getIsPaid());
-        }
-
         // SE O CORTE FOI CONCLUÍDO, VAMOS PROCESSAR O DINHEIRO E A FIDELIDADE!
         if (newStatus == AppointmentStatus.COMPLETED) {
 
             // 👇 1. SALVANDO O MÉTODO DE PAGAMENTO NO AGENDAMENTO 👇
-            if (request.getPaymentMethod() != null) {
-                appointment.setPaymentMethod(request.getPaymentMethod());
+            String paymentMethod = request.getPaymentMethod() != null ? request.getPaymentMethod().toUpperCase() : "DINHEIRO";
+            appointment.setPaymentMethod(paymentMethod);
+
+            // Regra de Ouro: Se a string for "FIADO" ou "PENDURAR", a conta NÃO está paga!
+            if (paymentMethod.equals("FIADO") || paymentMethod.equals("PENDURAR")) {
+                appointment.setIsPaid(false);
+            } else if (request.getIsPaid() != null) {
+                appointment.setIsPaid(request.getIsPaid());
+            } else {
+                appointment.setIsPaid(true); // Se pagou no Pix/Dinheiro/Cartão, tá pago.
             }
 
             Client client = appointment.getClient();
@@ -176,17 +179,13 @@ public class AppointmentService {
             if (client != null) {
                 int currentStamps = client.getFidelityStamps() != null ? client.getFidelityStamps() : 0;
                 client.setFidelityStamps(currentStamps + 1);
-
-                // Nota: Por enquanto estamos acumulando infinitamente.
-                // Se o dono quiser dar 1 corte grátis a cada 10, a gente avisa no App!
                 clientRepository.save(client);
             }
 
-            // 👇 3. PROCESSA O DINHEIRO 👇
-            // Usa a variável protegida para evitar erro
-            if (appointment.getIsPaid() != null && appointment.getIsPaid()) {
-                // CÁLCULO DE LUCRO REAL (Com taxa de maquininha)
-                processFinancialSplit(appointment, request.getPaymentMethod(), request.getMachineFeePercentage());
+            // 👇 3. PROCESSA O DINHEIRO (OU A DÍVIDA) 👇
+            if (appointment.getIsPaid()) {
+                // Cenário 1: Pagou normal! Lança no caixa.
+                processFinancialSplit(appointment, paymentMethod, request.getMachineFeePercentage());
             } else {
                 // Cenário 2: FIADO!
                 if (client != null) {
@@ -194,6 +193,26 @@ public class AppointmentService {
                     client.setDebtBalance(currentDebt.add(appointment.getTotalPrice()));
                     clientRepository.save(client);
                 }
+
+                // IMPORTANTE: Precisamos lançar no financeiro como "PENDING" para aparecer no "A Receber" do Dashboard
+                String serviceTitle = appointment.getAppointmentServices() != null && !appointment.getAppointmentServices().isEmpty()
+                        ? appointment.getAppointmentServices().iterator().next().getService().getName() : "Serviço Agendado";
+
+                FinancialRecord pendingIncome = FinancialRecord.builder()
+                        .type(FinancialType.APPOINTMENT)
+                        .amount(appointment.getTotalPrice())
+                        .title(serviceTitle + " (FIADO)")
+                        .description("Fiado - Cliente: " + (client != null ? client.getName() : "Desconhecido"))
+                        .category("SERVICO")
+                        .appointment(appointment)
+                        .company(appointment.getCompany())
+                        .professional(appointment.getProfessional())
+                        .paymentMethod("FIADO")
+                        .status("PENDING") // 👈 AQUI É O SEGREDO! Fica como a receber no caixa!
+                        .referenceDate(LocalDateTime.now())
+                        .createdAt(LocalDateTime.now())
+                        .build();
+                financialRecordRepository.save(pendingIncome);
             }
         }
 
