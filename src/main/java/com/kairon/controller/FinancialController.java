@@ -129,11 +129,15 @@ public class FinancialController {
        BAIXA DE PAGAMENTO (AÇÃO)
        ========================= */
 
-    @PostMapping("/records/{id}/pay")
+    /* =========================
+       BAIXA DE PAGAMENTO (AÇÃO)
+       ========================= */
+
+    @PostMapping("/records/{recordId}/pay")
     @Operation(summary = "Dar baixa em um registro financeiro pendente")
-    public ResponseEntity<Void> payRecord(@PathVariable String id) {
+    public ResponseEntity<Void> payRecord(@PathVariable("recordId") String recordId) {
         String companyId = SecurityUtils.getCurrentCompanyId();
-        financialService.payRecord(companyId, id);
+        financialService.payRecord(companyId, recordId);
         return ResponseEntity.ok().build();
     }
 
